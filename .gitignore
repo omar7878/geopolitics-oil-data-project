@@ -1,0 +1,59 @@
+# ============================================================
+# 🚫 Fichiers à ignorer par Git
+# ============================================================
+
+# --- Secrets ---
+.env
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# --- Spark ---
+metastore_db/
+derby.log
+*.jar
+
+# --- Docker volumes locaux ---
+infrastructure/volume_s3/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Airflow ---
+airflow.db
+airflow.cfg
+logs/
+unittests.cfg
+
+# --- Spark & Hadoop ---
+.spark-logs/
+checkpoint/
+spark-warehouse/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Data (sécurité supplémentaire) ---
+data/
+*.csv
+*.parquet
+*.json
+!config/elastic_mapping.json

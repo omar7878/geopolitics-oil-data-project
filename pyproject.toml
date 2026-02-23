@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "geopolitics-oil-data-project"
+version = "1.0.0"
+description = "Data Lake — Corrélation entre stress géopolitique (GDELT) et prix du pétrole (FRED)"
+authors = ["Omar Fekih-Hassen, Alexandre Donnat,Leo Ivars"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+# --- Ingestion ---
+requests = "^2.31"              # Appels HTTP vers les APIs FRED et GDELT
+boto3 = "^1.34"                 # Client AWS S3 (pour écrire sur LocalStack)
+# confluent-kafka = "^2.3"      # ⏸️ PHASE 2 — Kafka streaming (à décommenter)
+
+# --- Transformation (Spark) ---
+pyspark = "^3.5"                # Moteur de traitement distribué
+
+# --- Indexation ---
+elasticsearch = "^8.10"         # Client Python pour Elasticsearch
+
+# --- Utilitaires ---
+python-dotenv = "^1.0"          # Charge les variables du .env dans les scripts
+pandas = "^2.1"                 # Manipulation de données (utilitaire)
+s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
+matplotlib = "^3.10.8"
+
+[tool.poetry.group.airflow.dependencies]
+# Utile en local uniquement pour l'autocomplétion IDE
+apache-airflow = "^2.7"
+
+[tool.poetry.group.dev.dependencies]
+pytest    = "^7.4"              # Tests unitaires
+black     = "^23.0"             # Formatage automatique du code
+ruff      = "^0.1"              # Linter rapide
+ipykernel = "^6.29"             # Kernel Jupyter pour le venv VS Code
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
