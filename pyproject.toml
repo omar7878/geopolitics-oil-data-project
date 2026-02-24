@@ -9,22 +9,23 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.10"
 
-# --- Ingestion ---
+# -- Ingestion --
 requests = "^2.31"              # Appels HTTP vers les APIs FRED et GDELT
 boto3 = "^1.34"                 # Client AWS S3 (pour écrire sur LocalStack)
-# confluent-kafka = "^2.3"      # ⏸️ PHASE 2 — Kafka streaming (à décommenter)
+# confluent-kafka = "^2.3"      # PHASE 2 — Kafka streaming (à décommenter)
 
-# --- Transformation (Spark) ---
+# -- Transformation (Spark) --
 pyspark = "^3.5"                # Moteur de traitement distribué
 
-# --- Indexation ---
+# -- Indexation --
 elasticsearch = "^8.10"         # Client Python pour Elasticsearch
 
-# --- Utilitaires ---
+# -- Utilitaires --
 python-dotenv = "^1.0"          # Charge les variables du .env dans les scripts
 pandas = "^2.1"                 # Manipulation de données (utilitaire)
 s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
 matplotlib = "^3.10.8"
+awscli-local = "^0.22"           # CLI AWS pointant automatiquement vers LocalStack
 
 [tool.poetry.group.airflow.dependencies]
 # Utile en local uniquement pour l'autocomplétion IDE

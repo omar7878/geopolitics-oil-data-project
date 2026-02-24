@@ -25,7 +25,7 @@ services:
     ports:
       - "4566:4566"            # Le port magique pour parler à S3
     environment:
-      - SERVICES=s3            # On n'allume que S3 pour économiser la RAM de ton PC
+      - SERVICES=s3            # On n'allume que S3 pour économiser la RAM du PC
       - DEBUG=1
       - AWS_DEFAULT_REGION=eu-west-1
     volumes:
@@ -124,7 +124,7 @@ services:
       - ../src:/opt/airflow/src
     ports:
       - "8080:8080"            # L'interface web d'Airflow (http://localhost:8080)
-    command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
+    command: bash -c "pip install --quiet awscli awscli-local && airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
 
 volumes:
   postgres_data:

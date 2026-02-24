@@ -29,12 +29,13 @@ Toutes les couches sont stockées dans un bucket **S3 local (LocalStack)**.
 
 ## Prérequis
 
-| Outil | Version minimale |
-|-------|-----------------|
-| Python | 3.10+ |
-| Poetry | 1.8+ |
-| Docker & Docker Compose | 24+ |
-| Git | 2.40+ |
+| Outil | Version minimale | Obligatoire |
+|-------|-----------------|-------------|
+| Python | 3.10+ | Oui |
+| Poetry | 1.8+ | Oui |
+| Docker & Docker Compose | 24+ | Oui |
+| Git | 2.40+ | Oui |
+| AWS CLI (`awscli-local`) | 0.22+ | Optionnel |
 
 ---
 
@@ -75,11 +76,34 @@ Pour activer l'environnement virtuel :
 source .env/bin/activate
 ```
 
-### 4. Lancer l'infrastructure Docker
+### 4. Installer l'AWS CLI locale (optionnel)
+
+`awscli-local` fournit la commande `awslocal` qui pointe automatiquement vers LocalStack — aucune configuration AWS n'est requise :
+
+```bash
+poetry install   # installe awscli-local avec les autres dépendances
+```
+
+Commandes utiles :
+
+```bash
+# Lister les buckets
+awslocal s3 ls
+
+# Lister le contenu du Data Lake
+awslocal s3 ls s3://datalake/ --recursive
+
+# Télécharger un fichier depuis S3
+awslocal s3 cp s3://datalake/raw/fred/2024-01-01/wti_price.json .
+```
+
+> **Note :** `awslocal` est un wrapper autour d'`aws` qui ajoute `--endpoint-url=http://localhost:4566` automatiquement.
+
+### 5. Lancer l'infrastructure Docker
 
 ```bash
 cd infrastructure
-docker compose up -d
+docker compose up -d 
 cd ..
 ```
 
@@ -107,6 +131,16 @@ Services disponibles :
 1. Ouvrez Airflow : http://localhost:8080
 2. Activez le DAG `main_pipeline_dag`
 3. Déclenchez une exécution manuelle via le bouton ▶
+
+### Vérifier que S3 fonctionne (optionnel)
+
+```bash
+# Depuis votre machine (awslocal)
+awslocal s3 ls s3://datalake/
+
+# Ou depuis le conteneur Airflow
+docker exec airflow_webserver awslocal s3 ls s3://datalake/
+```
 
 ### Lancer les étapes manuellement
 
