@@ -73,7 +73,7 @@ poetry install
 Pour activer l'environnement virtuel :
 
 ```bash
-source .env/bin/activate
+source .venv/bin/activate
 ```
 
 ### 4. Installer l'AWS CLI locale (optionnel)
