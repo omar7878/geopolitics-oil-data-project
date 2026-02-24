@@ -72,7 +72,7 @@ poetry install
 Pour activer l'environnement virtuel :
 
 ```bash
-poetry shell
+source .env/bin/activate
 ```
 
 ### 4. Lancer l'infrastructure Docker
