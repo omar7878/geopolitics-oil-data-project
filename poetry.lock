@@ -664,6 +664,42 @@ files = [
 ]
 
 [[package]]
+name = "awscli"
+version = "1.43.5"
+description = "Universal Command Line Environment for AWS."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "awscli-1.43.5-py3-none-any.whl", hash = "sha256:8707de8e4c4e42a0fded867c1369027a5e6149c128815d487aedab34de71152c"},
+    {file = "awscli-1.43.5.tar.gz", hash = "sha256:4ff153bf2f9097eeb794d4150522df204ea982b6da08eb82f7fd09c138ac46cf"},
+]
+
+[package.dependencies]
+botocore = "1.41.5"
+colorama = ">=0.2.5,<0.4.7"
+docutils = ">=0.18.1,<=0.19"
+PyYAML = ">=3.10,<6.1"
+rsa = ">=3.1.2,<4.8"
+s3transfer = ">=0.15.0,<0.16.0"
+
+[[package]]
+name = "awscli-local"
+version = "0.22.2"
+description = "Thin wrapper around the \"aws\" command line interface for use with LocalStack"
+optional = false
+python-versions = "*"
+files = [
+    {file = "awscli_local-0.22.2-py3-none-any.whl", hash = "sha256:1901ebef343ba8cbde06f9f6406b5415ef53e93296718c2c31c9d49b0b09bd9d"},
+    {file = "awscli_local-0.22.2.tar.gz", hash = "sha256:07c532c372753bf5f15426451dc91d6eec9de8779748049329a9a882bdac8a0b"},
+]
+
+[package.dependencies]
+localstack-client = "*"
+
+[package.extras]
+ver1 = ["awscli"]
+
+[[package]]
 name = "babel"
 version = "2.18.0"
 description = "Internationalization utilities"
@@ -1435,6 +1471,17 @@ doq = ["aioquic (>=1.2.0)"]
 idna = ["idna (>=3.10)"]
 trio = ["trio (>=0.30)"]
 wmi = ["wmi (>=1.5.1)"]
+
+[[package]]
+name = "docutils"
+version = "0.19"
+description = "Docutils -- Python Documentation Utilities"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "docutils-0.19-py3-none-any.whl", hash = "sha256:5e1de4d849fee02c63b040a4a3fd567f4ab104defd8a5511fbbc24a8a017efbc"},
+    {file = "docutils-0.19.tar.gz", hash = "sha256:33995a6753c30b7f577febfc2c50411fec6aac7f7ffeb7c4cfe5991072dcf9e6"},
+]
 
 [[package]]
 name = "elastic-transport"
@@ -2773,6 +2820,22 @@ benchmark = ["pytest", "pytest-benchmark"]
 dev = ["black", "flake8", "isort", "pre-commit", "pyproject-flake8"]
 doc = ["myst-parser", "sphinx", "sphinx-book-theme"]
 test = ["coverage", "pytest", "pytest-cov"]
+
+[[package]]
+name = "localstack-client"
+version = "2.11"
+description = "A lightweight Python client for LocalStack."
+optional = false
+python-versions = "*"
+files = [
+    {file = "localstack_client-2.11.tar.gz", hash = "sha256:1cbd7bf1f03b9b553ffe7ea10fe137f44e8d690a37af9c6515eba61a2379fc46"},
+]
+
+[package.dependencies]
+boto3 = "*"
+
+[package.extras]
+test = ["black", "coverage", "flake8", "isort", "localstack", "pytest"]
 
 [[package]]
 name = "lockfile"
@@ -4225,6 +4288,17 @@ files = [
 ]
 
 [[package]]
+name = "pyasn1"
+version = "0.6.2"
+description = "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "pyasn1-0.6.2-py3-none-any.whl", hash = "sha256:1eb26d860996a18e9b6ed05e7aae0e9fc21619fcee6af91cca9bad4fbea224bf"},
+    {file = "pyasn1-0.6.2.tar.gz", hash = "sha256:9b59a2b25ba7e4f8197db7686c09fb33e658b98339fadb826e9512629017833b"},
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 description = "C parser in Python"
@@ -4985,6 +5059,20 @@ files = [
     {file = "rpds_py-0.30.0-pp311-pypy311_pp73-musllinux_1_2_x86_64.whl", hash = "sha256:ac37f9f516c51e5753f27dfdef11a88330f04de2d564be3991384b2f3535d02e"},
     {file = "rpds_py-0.30.0.tar.gz", hash = "sha256:dd8ff7cf90014af0c0f787eea34794ebf6415242ee1d6fa91eaba725cc441e84"},
 ]
+
+[[package]]
+name = "rsa"
+version = "4.7.2"
+description = "Pure-Python RSA implementation"
+optional = false
+python-versions = ">=3.5, <4"
+files = [
+    {file = "rsa-4.7.2-py3-none-any.whl", hash = "sha256:78f9a9bf4e7be0c5ded4583326e7461e3a3c5aae24073648b4bdfa797d78c9d2"},
+    {file = "rsa-4.7.2.tar.gz", hash = "sha256:9d689e6ca1b3038bc82bf8d23e944b6b6037bc02301a574935b2dd946e0353b9"},
+]
+
+[package.dependencies]
+pyasn1 = ">=0.1.3"
 
 [[package]]
 name = "ruff"
@@ -5864,4 +5952,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "434f5e98bd4a9f733eb0f5e3eb6bf53999c5ed2b646ba81b36440806d81f4592"
+content-hash = "9ee7b318edfef1a8ebbb6d2bbc6f2c8d4a8941fd28e9cd4081fc277ee75a8c21"

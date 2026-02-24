@@ -25,7 +25,8 @@ python-dotenv = "^1.0"          # Charge les variables du .env dans les scripts
 pandas = "^2.1"                 # Manipulation de données (utilitaire)
 s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
 matplotlib = "^3.10.8"
-awscli-local = "^0.22"           # CLI AWS pointant automatiquement vers LocalStack
+awscli = "^1.36"                 # AWS CLI (binaire aws)
+awscli-local = "^0.22"           # Wrapper awslocal → LocalStack automatiquement
 
 [tool.poetry.group.airflow.dependencies]
 # Utile en local uniquement pour l'autocomplétion IDE
