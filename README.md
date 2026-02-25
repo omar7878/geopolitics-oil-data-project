@@ -94,7 +94,7 @@ awslocal s3 ls
 awslocal s3 ls s3://datalake/ --recursive
 
 # Télécharger un fichier depuis S3
-awslocal s3 cp s3://datalake/raw/fred/2024-01-01/wti_price.json .
+awslocal s3 cp s3://datalake/raw/yahoofinance/2024-01-01/wti_price.json .
 ```
 
 > **Note :** `awslocal` est un wrapper autour d'`aws` qui ajoute `--endpoint-url=http://localhost:4566` automatiquement.

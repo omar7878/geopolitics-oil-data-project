@@ -11,7 +11,7 @@ geopolitics-oil-data-project/
 │   │
 │   ├── ingestion/                          # Étape 1 : Récupération des données brutes
 │   │   ├── __init__.py
-│   │   ├── batch_extract_fred.py           # Batch : Prix du pétrole WTI (API FRED) → S3 raw/fred/
+│   │   ├── batch_extract_yahoofinance.py   # Batch : Prix du pétrole WTI (Yahoo Finance) → S3 raw/yahoofinance/
 │   │   ├── batch_extract_gdelt.py          # Batch : Événements géopolitiques (API GDELT) → S3 raw/gdelt/
 │   │   ├── kafka_producer_gdelt.py         # ⏸️ PHASE 2 — Streaming GDELT → Kafka
 │   │   └── kafka_consumer_s3.py            # ⏸️ PHASE 2 — Kafka → S3 raw/gdelt/
@@ -19,7 +19,7 @@ geopolitics-oil-data-project/
 │   ├── transformation/                     # Étape 2 : Nettoyage et Formatage (Spark)
 │   │   ├── __init__.py
 │   │   ├── clean_gdelt.py                  # S3 raw/gdelt/ (JSON) → Parquet → S3 formatted/gdelt/
-│   │   └── clean_fred.py                   # S3 raw/fred/ (JSON) → Parquet → S3 formatted/fred/
+│   │   └── clean_yahoofinance.py            # S3 raw/yahoofinance/ (JSON) → Parquet → S3 formatted/yahoofinance/
 │   │
 │   ├── combination/                        # Étape 3 : Création de Valeur (Spark)
 │   │   ├── __init__.py
