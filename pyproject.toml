@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "geopolitics-oil-data-project"
 version = "1.0.0"
-description = "Data Lake — Corrélation entre stress géopolitique (GDELT) et prix du pétrole (FRED)"
+description = "Data Lake — Corrélation entre stress géopolitique (GDELT) et prix du pétrole (Yahoo Finance)"
 authors = ["Omar Fekih-Hassen, Alexandre Donnat,Leo Ivars"]
 readme = "README.md"
 package-mode = false
@@ -10,9 +10,9 @@ package-mode = false
 python = "^3.10"
 
 # -- Ingestion --
-requests = "^2.31"              # Appels HTTP vers les APIs FRED et GDELT
+requests = "^2.31"              # Appels HTTP vers l'API GDELT
 boto3 = "^1.34"                 # Client AWS S3 (pour écrire sur LocalStack)
-yfinance = "^0.2"               # Téléchargement données boursières Yahoo Finance
+yfinance = "^0.2"               # Téléchargement données boursières Yahoo Finance (WTI)
 pyarrow = "^15.0"               # Moteur Parquet pour pandas (to_parquet / read_parquet)
 # confluent-kafka = "^2.3"      # PHASE 2 — Kafka streaming (à décommenter)
 

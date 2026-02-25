@@ -34,7 +34,7 @@ awslocal s3api put-object --bucket datalake --key raw/gdelt/daily/
 awslocal s3api put-object --bucket datalake --key formatted/yahoofinance/
 awslocal s3api put-object --bucket datalake --key formatted/gdelt/
 
-# ── combined/ : résultat final (jointure GDELT + FRED) 
+# ── combined/ : résultat final (jointure GDELT + Yahoo Finance) 
 # A MODIFIER SI AJOUT DE COMBINAISON 
 awslocal s3api put-object --bucket datalake --key combined/stress_index/
 

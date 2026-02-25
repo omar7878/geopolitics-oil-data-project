@@ -23,7 +23,7 @@ geopolitics-oil-data-project/
 │   │
 │   ├── combination/                        # Étape 3 : Création de Valeur (Spark)
 │   │   ├── __init__.py
-│   │   └── compute_stress_index.py         # Jointure GDELT + FRED → Stress Score + Corrélation → S3 combined/
+│   │   └── compute_stress_index.py         # Jointure GDELT + Yahoo Finance → Stress Score + Corrélation → S3 combined/
 │   │
 │   └── indexing/                           # Étape 4 : Chargement vers Elastic
 │       ├── __init__.py
@@ -37,9 +37,9 @@ geopolitics-oil-data-project/
 │
 ├── tests/                                  # 🧪 TESTS UNITAIRES (Pytest)
 │   ├── __init__.py
-│   ├── test_batch_extract_fred.py
+│   ├── test_batch_extract_yfinance.py
 │   ├── test_batch_extract_gdelt.py
-│   ├── test_clean_fred.py
+│   ├── test_clean_yfinance.py
 │   ├── test_clean_gdelt.py
 │   ├── test_compute_stress_index.py
 │   └── test_load_to_elastic.py
@@ -52,7 +52,7 @@ geopolitics-oil-data-project/
 │   └── elastic_mapping.json                # Schéma des données pour Kibana (types, dates...).
 │
 ├── .env                                    # 🔒 SECRETS (IGNORÉ PAR GIT)
-│                                           # FRED_API_KEY et variables de connexion.
+│                                           # Variables de connexion (LocalStack, Elasticsearch, Airflow).
 │
 ├── .gitignore                              # 🚫 EXCLUSIONS GIT
 │                                           # .env, __pycache__, volume_s3, data/...
@@ -71,16 +71,20 @@ geopolitics-oil-data-project/
 
 ```
 s3://datalake/
-├── raw/                    ← Données brutes telles que reçues des APIs (JSON)
-│   ├── fred/
-│   │   └── YYYY-MM-DD/
-│   │       └── wti_price.json
+├── raw/                    ← Données brutes telles que reçues des APIs (Parquet)
+│   ├── yahoofinance/
+│   │   ├── history/        ← Backfill historique (une fois)
+│   │   │   └── wti_history_init.parquet
+│   │   └── daily/          ← Données quotidiennes (15 min)
+│   │       └── YYYY-MM-DD/
+│   │           └── wti_TIMESTAMP.parquet
 │   └── gdelt/
-│       └── YYYY-MM-DD/
-│           └── events.json
+│       └── daily/
+│           └── YYYY-MM-DD/
+│               └── events_TIMESTAMP.parquet
 │
 ├── formatted/              ← Données nettoyées, dates UTC, types corrects (Parquet)
-│   ├── fred/
+│   ├── yahoofinance/
 │   └── gdelt/
 │
 └── combined/               ← Résultat final : jointure + Stress Score (Parquet)

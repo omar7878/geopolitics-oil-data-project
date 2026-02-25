@@ -10,7 +10,7 @@ Analyse de la corrélation entre les événements géopolitiques et les prix du 
 
 Ce projet implémente un **Data Lake end-to-end** qui :
 
-1. Ingère les prix du pétrole WTI depuis l'API **FRED** et les événements géopolitiques depuis l'API **GDELT**
+1. Ingère les prix du pétrole WTI depuis **Yahoo Finance** et les événements géopolitiques depuis l'API **GDELT**
 2. Nettoie et normalise les données avec **PySpark**
 3. Calcule un **indice de stress géopolitique** combinant les deux sources
 4. Indexe les résultats dans **Elasticsearch** pour visualisation dans **Kibana**
@@ -18,9 +18,9 @@ Ce projet implémente un **Data Lake end-to-end** qui :
 ### Architecture
 
 ```
-API FRED  ──┐
-             ├──► raw/ (JSON) ──► formatted/ (Parquet) ──► combined/ (Parquet) ──► Elasticsearch ──► Kibana
-API GDELT ──┘
+Yahoo Finance ──┐
+                ├──► raw/ (Parquet) ──► formatted/ (Parquet) ──► combined/ (Parquet) ──► Elasticsearch ──► Kibana
+API GDELT    ──┘
 ```
 
 Toutes les couches sont stockées dans un bucket **S3 local (LocalStack)**.
@@ -139,14 +139,17 @@ docker exec airflow_webserver awslocal s3 ls s3://datalake/
 ### Lancer les étapes manuellement
 
 ```bash
-# Étape 1 — Ingestion FRED
-poetry run python src/ingestion/batch_extract_fred.py
+# Étape 1 — Ingestion Yahoo Finance (WTI) - Backfill historique
+poetry run python src/ingestion/backfill_yfinance.py
+
+# Étape 1 — Ingestion Yahoo Finance (WTI) - Données quotidiennes
+poetry run python src/ingestion/batch_extract_yfinance.py
 
 # Étape 1 — Ingestion GDELT
 poetry run python src/ingestion/batch_extract_gdelt.py
 
 # Étape 2 — Nettoyage (Spark)
-poetry run python src/transformation/clean_fred.py
+poetry run python src/transformation/clean_yfinance.py
 poetry run python src/transformation/clean_gdelt.py
 
 # Étape 3 — Calcul du Stress Index
@@ -179,8 +182,8 @@ poetry run jupyter notebook notebooks/
 geopolitics-oil-data-project/
 ├── dags/                         # DAGs Airflow (orchestration)
 ├── src/
-│   ├── ingestion/                # Extraction des données (FRED, GDELT)
-│   ├── transformation/           # Nettoyage Spark (JSON → Parquet)
+│   ├── ingestion/                # Extraction des données (Yahoo Finance, GDELT)
+│   ├── transformation/           # Nettoyage Spark (Parquet → Parquet)
 │   ├── combination/              # Calcul du Stress Index
 │   └── indexing/                 # Chargement Elasticsearch
 ├── tests/                        # Tests unitaires (pytest)
@@ -237,5 +240,6 @@ git push origin feat/nom-de-la-fonctionnalité
 ## Documentation complémentaire
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Architecture détaillée du Data Lake
-- [FRED API](https://fred.stlouisfed.org/docs/api/fred/) — Documentation API prix du pétrole
+- [Yahoo Finance](https://finance.yahoo.com/quote/CL=F) — Prix du pétrole brut WTI (Ticker: CL=F)
+- [yfinance Documentation](https://pypi.org/project/yfinance/) — Bibliothèque Python pour Yahoo Finance
 - [GDELT API](https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/) — Documentation API événements géopolitiques
