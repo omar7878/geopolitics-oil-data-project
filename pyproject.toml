@@ -12,6 +12,8 @@ python = "^3.10"
 # -- Ingestion --
 requests = "^2.31"              # Appels HTTP vers les APIs FRED et GDELT
 boto3 = "^1.34"                 # Client AWS S3 (pour écrire sur LocalStack)
+yfinance = "^0.2"               # Téléchargement données boursières Yahoo Finance
+pyarrow = "^15.0"               # Moteur Parquet pour pandas (to_parquet / read_parquet)
 # confluent-kafka = "^2.3"      # PHASE 2 — Kafka streaming (à décommenter)
 
 # -- Transformation (Spark) --

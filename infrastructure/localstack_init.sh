@@ -23,6 +23,8 @@ awslocal s3 mb s3://datalake
 # Créer la hiérarchie de dossiers (conventions Data Lake V2.2)
 # ── raw/ : données brutes telles que récupérées des APIs
 awslocal s3api put-object --bucket datalake --key raw/yahoofinance/
+awslocal s3api put-object --bucket datalake --key raw/yahoofinance/history/
+awslocal s3api put-object --bucket datalake --key raw/yahoofinance/daily/
 awslocal s3api put-object --bucket datalake --key raw/gdelt/
 
 # ── formatted/ : données nettoyées, en Parquet, dates UTC
