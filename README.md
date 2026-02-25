@@ -54,12 +54,6 @@ cd geopolitics-oil-data-project
 cp .env.example .env
 ```
 
-Ouvrez `.env` et renseignez votre clé API FRED :
-
-```
-FRED_API_KEY=votre_clé_ici
-```
-
 > Obtenez une clé gratuite sur [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html)
 
 Les autres variables (LocalStack, Elasticsearch, Airflow) sont déjà configurées pour l'environnement local.
