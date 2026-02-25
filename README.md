@@ -54,9 +54,8 @@ cd geopolitics-oil-data-project
 cp .env.example .env
 ```
 
-> Obtenez une clé gratuite sur [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html)
-
-Les autres variables (LocalStack, Elasticsearch, Airflow) sont déjà configurées pour l'environnement local.
+> Les variables d'environnement (LocalStack, Elasticsearch, Airflow) sont déjà configurées pour l'environnement local.
+> Yahoo Finance ne nécessite pas de clé API.
 
 ### 3. Installer les dépendances Python
 
