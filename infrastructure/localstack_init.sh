@@ -26,7 +26,7 @@ awslocal s3api put-object --bucket datalake --key raw/yahoofinance/
 awslocal s3api put-object --bucket datalake --key raw/gdelt/
 
 # ── formatted/ : données nettoyées, en Parquet, dates UTC
-awslocal s3api put-object --bucket datalake --key formatted/fred/
+awslocal s3api put-object --bucket datalake --key formatted/yahoofinance/
 awslocal s3api put-object --bucket datalake --key formatted/gdelt/
 
 # ── combined/ : résultat final (jointure GDELT + FRED) 
