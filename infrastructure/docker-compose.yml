@@ -112,7 +112,7 @@ services:
       #   condition: service_healthy
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
       # Variables AWS pour LocalStack
       - AWS_ACCESS_KEY_ID=test
@@ -124,7 +124,14 @@ services:
       - ../src:/opt/airflow/src
     ports:
       - "8080:8080"            # L'interface web d'Airflow (http://localhost:8080)
-    command: bash -c "pip install --quiet awscli awscli-local && airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow webserver & airflow scheduler"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install --quiet awscli awscli-local
+        airflow db init
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        airflow webserver &
+        airflow scheduler
 
 volumes:
   postgres_data:

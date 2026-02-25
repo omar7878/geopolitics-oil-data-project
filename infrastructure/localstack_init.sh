@@ -26,6 +26,9 @@ awslocal s3api put-object --bucket datalake --key raw/yahoofinance/
 awslocal s3api put-object --bucket datalake --key raw/yahoofinance/history/
 awslocal s3api put-object --bucket datalake --key raw/yahoofinance/daily/
 awslocal s3api put-object --bucket datalake --key raw/gdelt/
+awslocal s3api put-object --bucket datalake --key raw/gdelt/history/
+awslocal s3api put-object --bucket datalake --key raw/gdelt/daily/
+
 
 # ── formatted/ : données nettoyées, en Parquet, dates UTC
 awslocal s3api put-object --bucket datalake --key formatted/yahoofinance/
