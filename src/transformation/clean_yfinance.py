@@ -1,29 +1,46 @@
 """
 clean_yfinance.py
 =================
-Étape 2 — Formatting des données brutes Yahoo Finance (WTI) avec PySpark.
+Étape 2 — Formatting (couche Silver) des données brutes Yahoo Finance (WTI) avec PySpark.
+
+Piloté par Airflow via argparse :
+  --mode history           Initialisation unique du fichier formaté.
+  --mode daily --date D    Mise à jour incrémentale d'un jour précis.
 
 Deux modes :
-  1. format_history()  → Lit tous les fichiers raw/yahoofinance/history/,
-                          les nettoie, les fusionne (sans doublons) et écrit
-                          le parquet initial dans formatted/yahoofinance/.
-  2. format_daily()    → Lit les nouveaux fichiers raw/yahoofinance/daily/,
-                          les nettoie, les fusionne avec le parquet formaté
-                          existant (sans doublons) et met à jour le fichier.
+  1. format_history()
+     → Lit TOUT raw/yahoofinance/history/ (données du backfill initial)
+     → Nettoie, dédoublonne, enrichit et crée le parquet initial
+       formatted/yahoofinance/wti.parquet.
+     → À lancer UNE SEULE FOIS au démarrage du projet.
+
+  2. format_daily(target_date)
+     → Lit UNIQUEMENT raw/yahoofinance/daily/{target_date}/ (1 seul jour)
+     → Fusionne avec le parquet formaté existant (union)
+     → Dédoublonne, enrichit et écrase le fichier formaté.
+     → Appelé QUOTIDIENNEMENT par Airflow (--date {{ ds }}).
+     → Scalable : ne relit pas tout daily/, juste le dossier du jour.
 
 Nettoyage appliqué :
   - Datetime → UTC (TimestampType)
   - Open, High, Low, Close → DoubleType
-  - Volume → LongType
+  - Volume → LongTypes
   - Suppression des doublons sur Datetime
   - Tri chronologique
+
 Enrichissement (Silver) :
-  - Volatility_Range (High - Low)
-  - Variation_Pct (% d'évolution par rapport à la bougie précédente)
+  - Volatility_Range   = High - Low (amplitude de la bougie)
+  - Variation_Pct      = (Close - Prev_Close) / Prev_Close * 100
+                         (calculé via Window.lag — nécessite l'union avec
+                         l'historique existant pour que la 1ère ligne du jour
+                         ait une référence t-1 correcte)
+
+Usage :
+  poetry run python -m src.transformation.clean_yfinance --mode history
+  poetry run python -m src.transformation.clean_yfinance --mode daily --date 2026-02-27
 """
 
-import logging
-
+import loggingimport argparse
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, LongType, TimestampType
@@ -178,11 +195,18 @@ def format_history() -> None:
 # 2. FORMAT DAILY (incrémental)
 # ──────────────────────────────────────────────
 
-def format_daily() -> None:
-    # ... Reste du code inchangé ...
+def format_daily(target_date: str) -> None:
+    """
+    Mise à jour incrémentale : lit uniquement le dossier du jour cible,
+    fusionne avec le parquet formaté existant, nettoie et écrase.
+
+    Args:
+        target_date: Date au format YYYY-MM-DD (injectée par Airflow via {{ ds }}).
+    """
     spark = _get_spark()
     logger.info("═" * 60)
     logger.info("FORMAT DAILY — Mise à jour incrémentale")
+    logger.info("Date cible : %s", target_date)
     logger.info("═" * 60)
 
     try:
@@ -193,10 +217,12 @@ def format_daily() -> None:
         spark.stop()
         return
 
+    # Lecture ciblée : uniquement le dossier du jour (pas de recursiveFileLookup)
+    target_path = f"{RAW_DAILY_PATH}{target_date}/"
     try:
-        df_new = spark.read.option("recursiveFileLookup", "true").parquet(RAW_DAILY_PATH)
+        df_new = spark.read.parquet(target_path)
     except Exception:
-        logger.info("Aucun nouveau fichier dans %s — rien à faire.", RAW_DAILY_PATH)
+        logger.info("Aucun fichier dans %s — rien à faire.", target_path)
         spark.stop()
         return
 
@@ -218,8 +244,26 @@ def format_daily() -> None:
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "daily":
-        format_daily()
+    
+
+    parser = argparse.ArgumentParser(description="Formatting Yahoo Finance WTI (PySpark)")
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=["history", "daily"],
+        help="Mode : 'history' pour l'init, 'daily' pour l'incrémental.",
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Date cible au format YYYY-MM-DD (obligatoire en mode daily). Airflow passe {{ ds }}.",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "daily":
+        if not args.date:
+            parser.error("--date est obligatoire en mode daily.")
+        format_daily(args.date)
     else:
         format_history()
