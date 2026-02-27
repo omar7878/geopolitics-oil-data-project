@@ -17,6 +17,9 @@ Nettoyage appliqué :
   - Volume → LongType
   - Suppression des doublons sur Datetime
   - Tri chronologique
+Enrichissement (Silver) :
+  - Volatility_Range (High - Low)
+  - Variation_Pct (% d'évolution par rapport à la bougie précédente)
 """
 
 import logging
@@ -52,7 +55,6 @@ logger = logging.getLogger(__name__)
 # SPARK SESSION
 # ──────────────────────────────────────────────
 
-
 def _get_spark() -> SparkSession:
     """Crée une SparkSession configurée pour LocalStack S3."""
     return (
@@ -78,15 +80,9 @@ def _get_spark() -> SparkSession:
 # HELPERS
 # ──────────────────────────────────────────────
 
-
 def _clean_dataframe(df: DataFrame) -> DataFrame:
     """
-    Applique le nettoyage standard sur un DataFrame Yahoo Finance brut.
-
-    - Cast Datetime → TimestampType (UTC)
-    - Cast Open/High/Low/Close → DoubleType, Volume → LongType
-    - Supprime les doublons sur Datetime (garde la dernière occurrence)
-    - Trie par Datetime
+    Applique le nettoyage et l'enrichissement standard sur Yahoo Finance.
     """
 
     # ── Cast des types ────────────────────────────────────────
@@ -101,11 +97,11 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     )
 
     # ── Dédoublonnage sur Datetime (garde la dernière occurrence) ──
-    window = Window.partitionBy("Datetime").orderBy(F.monotonically_increasing_id())
+    window_dedup = Window.partitionBy("Datetime").orderBy(F.monotonically_increasing_id())
     before = df.count()
     df = (
         df
-        .withColumn("_row_num", F.row_number().over(window))
+        .withColumn("_row_num", F.row_number().over(window_dedup))
         .filter(F.col("_row_num") == 1)
         .drop("_row_num")
     )
@@ -113,11 +109,32 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     if before != after:
         logger.info("Doublons supprimés : %d", before - after)
 
-    # ── Tri chronologique ─────────────────────────────────────
+    # ── ENRICHISSEMENT SILVER (Nouvelles Colonnes) ────────────
+    
+    # 1. Volatilité (Amplitude de la bougie)
+    df = df.withColumn("Volatility_Range", F.round(F.col("High") - F.col("Low"), 4))
+
+    # 2. Calcul de la Variation en % par rapport à la bougie précédente
+    # On définit une fenêtre triée par le temps pour récupérer le (t-1)
+    window_lag = Window.orderBy("Datetime")
+    
+    df = (
+        df
+        .withColumn("Prev_Close", F.lag("Close", 1).over(window_lag))
+        .withColumn(
+            "Variation_Pct",
+            F.when(
+                F.col("Prev_Close").isNotNull(),
+                F.round(((F.col("Close") - F.col("Prev_Close")) / F.col("Prev_Close")) * 100, 4)
+            ).otherwise(F.lit(None).cast(DoubleType()))  # null pour la première ligne (pas de référence t-1)
+        )
+        .drop("Prev_Close")
+    )
+
+    # ── Tri chronologique final ───────────────────────────────
     df = df.orderBy("Datetime")
 
     return df
-
 
 def _write_parquet(df: DataFrame, path: str) -> None:
     """Écrit un DataFrame Spark en un seul fichier Parquet sur S3."""
@@ -130,15 +147,9 @@ def _write_parquet(df: DataFrame, path: str) -> None:
 # 1. FORMAT HISTORY (init)
 # ──────────────────────────────────────────────
 
-
 def format_history() -> None:
-    """
-    Lit tous les fichiers Parquet dans raw/yahoofinance/history/,
-    les fusionne, les nettoie et écrit le résultat dans
-    formatted/yahoofinance/wti.parquet.
-    """
+    # ... Reste du code inchangé ...
     spark = _get_spark()
-
     logger.info("═" * 60)
     logger.info("FORMAT HISTORY — Création du fichier formaté initial")
     logger.info("═" * 60)
@@ -151,8 +162,6 @@ def format_history() -> None:
         return
 
     logger.info("Total brut : %d lignes", df.count())
-
-    # Nettoyage
     df = _clean_dataframe(df)
     logger.info("Après nettoyage : %d lignes", df.count())
 
@@ -160,10 +169,8 @@ def format_history() -> None:
     dt_max = df.agg(F.max("Datetime")).collect()[0][0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
-    # Écriture
     _write_parquet(df, FORMATTED_PATH)
-    logger.info("Format history terminé ✅")
-
+    logger.info("Format history terminé")
     spark.stop()
 
 
@@ -171,32 +178,21 @@ def format_history() -> None:
 # 2. FORMAT DAILY (incrémental)
 # ──────────────────────────────────────────────
 
-
 def format_daily() -> None:
-    """
-    Lit les nouveaux fichiers Parquet dans raw/yahoofinance/daily/,
-    les fusionne avec le fichier formaté existant, dédoublonne
-    et met à jour formatted/yahoofinance/wti.parquet.
-    """
+    # ... Reste du code inchangé ...
     spark = _get_spark()
-
     logger.info("═" * 60)
     logger.info("FORMAT DAILY — Mise à jour incrémentale")
     logger.info("═" * 60)
 
-    # ── Charger le fichier formaté existant ───────────────────
     try:
         df_existing = spark.read.parquet(FORMATTED_PATH)
         logger.info("Fichier formaté existant : %d lignes", df_existing.count())
     except Exception:
-        logger.warning(
-            "Aucun fichier formaté existant (%s). Lancez d'abord format_history().",
-            FORMATTED_PATH,
-        )
+        logger.warning("Aucun fichier formaté existant (%s). Lancez d'abord format_history().", FORMATTED_PATH)
         spark.stop()
         return
 
-    # ── Lire les nouveaux fichiers daily ──────────────────────
     try:
         df_new = spark.read.option("recursiveFileLookup", "true").parquet(RAW_DAILY_PATH)
     except Exception:
@@ -206,7 +202,6 @@ def format_daily() -> None:
 
     logger.info("Nouvelles lignes brutes : %d", df_new.count())
 
-    # ── Fusion + nettoyage ────────────────────────────────────
     df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
     logger.info("Total avant dédoublonnage : %d lignes", df_merged.count())
 
@@ -217,20 +212,13 @@ def format_daily() -> None:
     dt_max = df_merged.agg(F.max("Datetime")).collect()[0][0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
-    # ── Écriture ──────────────────────────────────────────────
     _write_parquet(df_merged, FORMATTED_PATH)
     logger.info("Format daily terminé ✅")
-
     spark.stop()
 
 
-# ──────────────────────────────────────────────
-# POINT D'ENTRÉE
-# ──────────────────────────────────────────────
-
 if __name__ == "__main__":
     import sys
-
     if len(sys.argv) > 1 and sys.argv[1] == "daily":
         format_daily()
     else:

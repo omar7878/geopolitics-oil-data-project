@@ -13,6 +13,7 @@ Deux modes :
                          dédoublonne et met à jour le fichier.
 
 Nettoyage appliqué :
+
   - DATEADDED → TimestampType (UTC)
   - Day → DateType
   - Cast numériques
@@ -27,10 +28,7 @@ from pyspark.sql.types import (
     LongType,
     IntegerType,
     DoubleType,
-    TimestampType,
-    DateType,
 )
-from pyspark.sql.window import Window
 
 
 # ──────────────────────────────────────────────
@@ -43,6 +41,29 @@ BUCKET_NAME = "datalake"
 RAW_HISTORY_PATH = f"s3a://{BUCKET_NAME}/raw/gdelt/history/"
 RAW_DAILY_PATH = f"s3a://{BUCKET_NAME}/raw/gdelt/daily/"
 FORMATTED_PATH = f"s3a://{BUCKET_NAME}/formatted/gdelt/events.parquet"
+
+
+# ──────────────────────────────────────────────
+# FILTRES — ÉVÉNEMENTS GÉOPOLITIQUES MAJEURS
+# ──────────────────────────────────────────────
+
+# Seuils de qualité et d'intensité
+FILTER_MIN_ARTICLES = 4        # Consensus médiatique minimal
+FILTER_MIN_GOLDSTEIN = 5.0     # Choc diplomatique/matériel fort (valeur absolue)
+FILTER_MIN_QUADCLASS = 3       # Conflits Verbaux (3) ou Matériels (4) uniquement
+
+# EventRootCode conservés :
+#   "Orange" — Tensions & Menaces
+#   10 Demand, 11 Disapprove, 12 Reject, 13 Threaten,
+#   15 Exhibit force posture, 17 Coerce
+#
+#   "Rouge" — Chocs & Actions directes
+#   06 Material cooperation (ex: accords OPEP)
+#   08 Yield (ex: levée d'embargo)
+#   14 Protest (ex: grèves pétrolières)
+#   16 Reduce relations (ex: sanctions)
+#   18 Assault, 19 Fight, 20 Mass violence
+MAJOR_EVENT_CODES = [6, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
 
 # Colonnes conservées (schéma GDELT parquet)
@@ -126,6 +147,7 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     - Cast types
     - Parse dates
     - Suppression doublons sur GlobalEventID
+    - Filtre événements majeurs (NumArticles, GoldsteinScale, QuadClass, EventRootCode)
     - Tri chronologique
     """
 
@@ -165,20 +187,19 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
         .withColumn("ActionGeo_Long", F.col("ActionGeo_Long").cast(DoubleType()))
     )
 
-    # ── Dédoublonnage sur GlobalEventID ───────────────────────
-    window = Window.partitionBy("GlobalEventID").orderBy(F.monotonically_increasing_id())
-    before = df.count()
+    # ── Dédoublonnage sur GlobalEventID ───────────────────────────────────
+    # Note : filtrer avant dédoublonner réduirait le volume traité,
+    # mais Catalyst (Predicates Pushdown) réordonne automatiquement.
+    # L'ordre ici reste correct et lisible.
+    df = df.dropDuplicates(["GlobalEventID"])
 
-    df = (
-        df
-        .withColumn("_row_num", F.row_number().over(window))
-        .filter(F.col("_row_num") == 1)
-        .drop("_row_num")
+    # ── Filtre — Événements géopolitiques majeurs ─────────────
+    df = df.filter(
+        (F.col("NumArticles") >= FILTER_MIN_ARTICLES) &
+        (F.abs(F.col("GoldsteinScale")) >= FILTER_MIN_GOLDSTEIN) &
+        (F.col("QuadClass") >= FILTER_MIN_QUADCLASS) &
+        F.col("EventRootCode").isin(MAJOR_EVENT_CODES)
     )
-
-    after = df.count()
-    if before != after:
-        logger.info("Doublons supprimés : %d", before - after)
 
     # ── Tri chronologique ─────────────────────────────────────
     df = df.orderBy("DATEADDED")
@@ -187,9 +208,11 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
 
 
 def _write_parquet(df: DataFrame, path: str) -> None:
+    df = df.cache()
     count = df.count()
     df.coalesce(1).write.mode("overwrite").parquet(path)
     logger.info("Parquet écrit → %s (%d lignes)", path, count)
+    df.unpersist()
 
 
 # ──────────────────────────────────────────────
@@ -210,13 +233,9 @@ def format_history() -> None:
         spark.stop()
         return
 
-    logger.info("Total brut : %d lignes", df.count())
-
     df = _clean_dataframe(df)
-    logger.info("Après nettoyage : %d lignes", df.count())
 
-    dt_min = df.agg(F.min("DATEADDED")).collect()[0][0]
-    dt_max = df.agg(F.max("DATEADDED")).collect()[0][0]
+    dt_min, dt_max = df.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df, FORMATTED_PATH)
@@ -239,7 +258,6 @@ def format_daily() -> None:
     # Charger parquet existant
     try:
         df_existing = spark.read.parquet(FORMATTED_PATH)
-        logger.info("Fichier existant : %d lignes", df_existing.count())
     except Exception:
         logger.warning("Aucun fichier formaté existant. Lance d'abord format_history().")
         spark.stop()
@@ -253,16 +271,10 @@ def format_daily() -> None:
         spark.stop()
         return
 
-    logger.info("Nouvelles lignes brutes : %d", df_new.count())
-
     df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
-    logger.info("Total avant dédoublonnage : %d", df_merged.count())
-
     df_merged = _clean_dataframe(df_merged)
-    logger.info("Total après dédoublonnage : %d", df_merged.count())
 
-    dt_min = df_merged.agg(F.min("DATEADDED")).collect()[0][0]
-    dt_max = df_merged.agg(F.max("DATEADDED")).collect()[0][0]
+    dt_min, dt_max = df_merged.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df_merged, FORMATTED_PATH)
