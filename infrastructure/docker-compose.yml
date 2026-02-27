@@ -28,6 +28,7 @@ services:
       - SERVICES=s3            # On n'allume que S3 pour économiser la RAM du PC
       - DEBUG=1
       - AWS_DEFAULT_REGION=eu-west-1
+      - PERSISTENCE=1          # Force la sauvegarde des données S3 sur disque
     volumes:
       - "${LOCALSTACK_VOLUME_DIR:-./volume_s3}:/var/lib/localstack"
       - ./localstack_init.sh:/etc/localstack/init/ready.d/init.sh  # Exécuté auto au démarrage
@@ -82,6 +83,8 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # On limite la RAM prise par Elastic
     ports:
       - "9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data  # Persistance des index Elasticsearch
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
       interval: 15s
@@ -135,3 +138,4 @@ services:
 
 volumes:
   postgres_data:
+  elastic_data:
