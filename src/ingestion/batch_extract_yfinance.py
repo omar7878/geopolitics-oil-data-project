@@ -1,19 +1,21 @@
 """
 batch_extract_yfinance.py
 =========================
-Ingestion quotidienne du prix du pétrole brut WTI (15 min).
+Ingestion journalière idempotente du prix du pétrole brut WTI (15 min).
 
 Source  : Yahoo Finance via yfinance — Ticker CL=F
 Flux    : Yahoo Finance → Parquet → s3://datalake/raw/yahoofinance/daily/YYYY-MM-DD/wti_daily.parquet
 
-Appelé régulièrement (ex. toutes les 15 min via Airflow) pour récupérer
-les données du jour courant et les déposer dans raw/yahoofinance/daily/.
+Usage:
+    python -m src.ingestion.batch_extract_yfinance --date 2026-02-27
+    # Airflow passe {{ ds }} automatiquement via le paramètre --date
 """
 
+import argparse
 import io
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 
 import boto3
 import yfinance as yf
@@ -50,21 +52,20 @@ logger = logging.getLogger(__name__)
 # FONCTION PRINCIPALE
 # ──────────────────────────────────────────────
 
+def extract_daily_data(execution_date: date) -> None:
+    """
+    Télécharge les données WTI d'une journée spécifique (intervalle 15 min)
+    et les sauvegarde en Parquet sur S3 dans raw/yahoofinance/daily/{date}/.
 
-def extract_daily_data() -> None:
+    Idempotent : relancer avec la même date écrase le fichier existant.
     """
-    Télécharge les données WTI du jour (intervalle 15 min)
-    et les sauvegarde en Parquet sur S3 dans raw/yahoofinance/daily/.
-    """
-    today = datetime.today()
-    date_start = today.strftime("%Y-%m-%d")
-    date_end = (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    date_folder = today.strftime("%Y-%m-%d")
+    date_start = execution_date.strftime("%Y-%m-%d")
+    date_end   = (execution_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
     logger.info("═" * 60)
     logger.info("INGESTION DAILY WTI (Yahoo Finance)")
     logger.info("Ticker     : %s", TICKER)
-    logger.info("Journée    : %s", date_start)
+    logger.info("Journée    : %s (UTC)", date_start)
     logger.info("Intervalle : %s", INTERVAL)
     logger.info("═" * 60)
 
@@ -95,7 +96,7 @@ def extract_daily_data() -> None:
     logger.info("Plage    : %s → %s", df["Datetime"].min(), df["Datetime"].max())
 
     # ── 4. Upload Parquet sur S3 ─────────────────────────────
-    s3_key = f"raw/yahoofinance/daily/{date_folder}/wti_daily.parquet"
+    s3_key = f"raw/yahoofinance/daily/{date_start}/wti_daily.parquet"
 
     parquet_buffer = io.BytesIO()
     df.to_parquet(
@@ -109,7 +110,7 @@ def extract_daily_data() -> None:
         Key=s3_key,
         Body=parquet_buffer.getvalue(),
     )
-    logger.info("Uploadé → s3://%s/%s", BUCKET_NAME, s3_key)
+    logger.info("✅ Uploadé → s3://%s/%s", BUCKET_NAME, s3_key)
     logger.info("Taille : %.2f Ko", len(parquet_buffer.getvalue()) / 1024)
     logger.info("Ingestion daily terminée.")
 
@@ -119,4 +120,12 @@ def extract_daily_data() -> None:
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    extract_daily_data()
+    parser = argparse.ArgumentParser(description="Ingestion journalière WTI (Yahoo Finance)")
+    parser.add_argument(
+        "--date",
+        required=True,
+        type=lambda s: date.fromisoformat(s),
+        help="Date à ingérer au format YYYY-MM-DD (ex: 2026-02-27). Airflow passe {{ ds }}.",
+    )
+    args = parser.parse_args()
+    extract_daily_data(execution_date=args.date)
