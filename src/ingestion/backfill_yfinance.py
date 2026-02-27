@@ -15,7 +15,7 @@ Appelé une seule fois pour initialiser l'historique depuis le 5 janvier 2026.
 import io
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import boto3
 import yfinance as yf
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # FONCTION PRINCIPALE
 # ──────────────────────────────────────────────
 
-def extract_historical_data(start_date: datetime = datetime(2026, 2, 19, 0, 0)) -> None:
+def extract_historical_data(start_date: datetime = datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc)) -> None:
     """
     Télécharge l'historique du pétrole WTI depuis Yahoo Finance,
     nettoie le DataFrame et le sauvegarde en Parquet.

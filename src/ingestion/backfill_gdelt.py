@@ -4,7 +4,7 @@ import io
 import boto3
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 
 # --- Configuration ---
 S3_ENDPOINT = "http://localhost:4566"
@@ -40,7 +40,7 @@ GDELT_COLUMNS = [
     "ActionGeo_FeatureID", "DATEADDED", "SOURCEURL"
 ]
 
-def run_backfill(start_date: datetime = datetime(2026, 2, 19, 0, 0)):
+def run_backfill(start_date: datetime = datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc)):
     print(f"📂 Récupération de l'historique GDELT depuis {start_date} (Master File List)...")
     
     try:
@@ -55,7 +55,7 @@ def run_backfill(start_date: datetime = datetime(2026, 2, 19, 0, 0)):
         # 3. Extraire et filtrer par date
         # GDELT utilise des dates à 14 chiffres dans l'URL : YYYYMMDDHHMMSS
         df['dt_str'] = df['url'].str.extract(r'/(\d{14})\.')
-        df['datetime'] = pd.to_datetime(df['dt_str'], format='%Y%m%d%H%M%S', errors='coerce')
+        df['datetime'] = pd.to_datetime(df['dt_str'], format='%Y%m%d%H%M%S', errors='coerce', utc=True)
         
         # On ne garde que les "export" (les événements) postérieurs à start_date
         to_process = df[
