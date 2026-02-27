@@ -144,7 +144,10 @@ poetry run python src/ingestion/backfill_yfinance.py
 # Étape 1 — Ingestion Yahoo Finance (WTI) - Données quotidiennes
 poetry run python src/ingestion/batch_extract_yfinance.py
 
-# Étape 1 — Ingestion GDELT
+# Étape 1 — Ingestion GDELT- Backfill historique
+poetry run python src/ingestion/backfill_gdelt.py
+
+# Étape 1 — Ingestion GDELT- Données quotidiennes
 poetry run python src/ingestion/batch_extract_gdelt.py
 
 # Étape 2 — Nettoyage (Spark)
