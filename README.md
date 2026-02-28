@@ -138,28 +138,31 @@ docker exec airflow_webserver awslocal s3 ls s3://datalake/
 ### Lancer les étapes manuellement
 
 ```bash
-# Étape 1 — Ingestion Yahoo Finance (WTI) - Backfill historique
-poetry run python src/ingestion/backfill_yfinance.py
+# ── Étape 1a — Ingestion Backfill (historique initial, à lancer une seule fois)
+poetry run python -m src.ingestion.backfill_yfinance
+poetry run python -m src.ingestion.backfill_gdelt
 
-# Étape 1 — Ingestion Yahoo Finance (WTI) - Données quotidiennes
-poetry run python src/ingestion/batch_extract_yfinance.py
+# ── Étape 1b — Ingestion Daily (idempotente, pilotée par --date)
+poetry run python -m src.ingestion.batch_extract_yfinance --date 2026-02-27
+poetry run python -m src.ingestion.batch_extract_gdelt --date 2026-02-27
 
-# Étape 1 — Ingestion GDELT- Backfill historique
-poetry run python src/ingestion/backfill_gdelt.py
+# ── Étape 2a — Formatting History (init unique du fichier Silver)
+poetry run python -m src.transformation.clean_yfinance --mode history
+poetry run python -m src.transformation.clean_gdelt --mode history
 
-# Étape 1 — Ingestion GDELT- Données quotidiennes
-poetry run python src/ingestion/batch_extract_gdelt.py
+# ── Étape 2b — Formatting Daily (incrémental, pilotée par --date)
+poetry run python -m src.transformation.clean_yfinance --mode daily --date 2026-02-27
+poetry run python -m src.transformation.clean_gdelt --mode daily --date 2026-02-27
 
-# Étape 2 — Nettoyage (Spark)
-poetry run python src/transformation/clean_yfinance.py
-poetry run python src/transformation/clean_gdelt.py
+# ── Étape 3 — Calcul du Stress Index
+poetry run python -m src.combination.compute_stress_index
 
-# Étape 3 — Calcul du Stress Index
-poetry run python src/combination/compute_stress_index.py
-
-# Étape 4 — Indexation Elasticsearch
-poetry run python src/indexing/load_to_elastic.py
+# ── Étape 4 — Indexation Elasticsearch
+poetry run python -m src.indexing.load_to_elastic
 ```
+
+> **Note :** En production, Airflow passe automatiquement `--date {{ ds }}` à chaque script.
+> Les scripts d'ingestion et de formatting sont **idempotents** : relancer avec la même date écrase les données existantes sans créer de doublons.
 
 ### Explorer les données avec les notebooks
 
@@ -171,8 +174,8 @@ poetry run jupyter notebook notebooks/
 
 | Notebook | Contenu |
 |----------|---------|
-| `01_explore_raw_s3.ipynb` | Données brutes JSON sur S3 |
-| `02_explore_formatted_spark.ipynb` | Parquet après nettoyage Spark |
+| `01_explore_raw_s3.ipynb` | Données brutes Parquet sur S3 |
+| `02_explore_formatted_spark.ipynb` | Parquet après nettoyage Spark (couche Silver) |
 | `03_explore_combined_stress_index.ipynb` | Stress Index et corrélations |
 | `04_explore_elasticsearch.ipynb` | Requêtes Elasticsearch |
 
@@ -185,15 +188,22 @@ geopolitics-oil-data-project/
 ├── dags/                         # DAGs Airflow (orchestration)
 ├── src/
 │   ├── ingestion/                # Extraction des données (Yahoo Finance, GDELT)
-│   ├── transformation/           # Nettoyage Spark (Parquet → Parquet)
+│   │   ├── backfill_yfinance.py  #   Backfill historique WTI (une seule fois)
+│   │   ├── backfill_gdelt.py     #   Backfill historique GDELT (une seule fois)
+│   │   ├── batch_extract_yfinance.py  # Daily idempotent WTI (--date)
+│   │   └── batch_extract_gdelt.py     # Daily idempotent GDELT (--date)
+│   ├── transformation/           # Nettoyage PySpark (couche Silver)
+│   │   ├── clean_yfinance.py     #   --mode history | --mode daily --date
+│   │   └── clean_gdelt.py        #   --mode history | --mode daily --date
 │   ├── combination/              # Calcul du Stress Index
 │   └── indexing/                 # Chargement Elasticsearch
 ├── tests/                        # Tests unitaires (pytest)
 ├── notebooks/                    # Exploration et visualisation
 ├── infrastructure/               # Docker Compose + init S3
+│   ├── docker-compose.yml        # LocalStack, Postgres, Airflow, Elastic, Kibana
+│   └── localstack_init.sh        # Création auto du bucket S3 au démarrage
 ├── config/
 │   └── elastic_mapping.json      # Mapping Elasticsearch
-├── .env.example                  # Template des variables d'environnement
 ├── pyproject.toml                # Dépendances Poetry
 └── ARCHITECTURE.md               # Architecture détaillée
 ```

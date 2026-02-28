@@ -1,36 +1,50 @@
 """
 clean_gdelt.py
 ==============
-Étape 2 — Formatting des données brutes GDELT avec PySpark.
+Étape 2 — Formatting (couche Silver) des données brutes GDELT avec PySpark.
+
+Piloté par Airflow via argparse :
+  --mode history           Initialisation unique du fichier formaté.
+  --mode daily --date D    Mise à jour incrémentale d'un jour précis.
 
 Deux modes :
-  1. format_history()  → Lit raw/gdelt/history/,
-                         nettoie, fusionne et crée le parquet initial
-                         formatted/gdelt/events.parquet.
+  1. format_history()
+     → Lit TOUT raw/gdelt/history/ (données du backfill initial)
+     → Nettoie, filtre, dédoublonne et crée le parquet initial
+       formatted/gdelt/events.parquet.
+     → À lancer UNE SEULE FOIS au démarrage du projet.
 
-  2. format_daily()    → Lit raw/gdelt/daily/,
-                         fusionne avec le parquet formaté existant,
-                         dédoublonne et met à jour le fichier.
+  2. format_daily(target_date)
+     → Lit UNIQUEMENT raw/gdelt/daily/{target_date}/ (1 seul jour)
+     → Fusionne avec le parquet formaté existant (union)
+     → Dédoublonne, filtre et écrase le fichier formaté.
+     → Appelé QUOTIDIENNEMENT par Airflow (--date {{ ds }}).
+     → Scalable : ne relit pas tout daily/, juste le dossier du jour.
 
 Nettoyage appliqué :
   - DATEADDED → TimestampType (UTC)
   - Day → DateType
-  - Cast numériques
+  - Cast numériques (GoldsteinScale, AvgTone, coordonnées…)
   - Suppression doublons sur GlobalEventID
+  - Filtre : événements géopolitiques majeurs uniquement
+    (NumArticles >= 4, |GoldsteinScale| >= 5, QuadClass >= 2, EventRootCode ciblés)
+  - Filtre temporel : Day >= 2026-01-01
   - Tri chronologique sur DATEADDED
+
+Usage :
+  poetry run python -m src.transformation.clean_gdelt --mode history
+  poetry run python -m src.transformation.clean_gdelt --mode daily --date 2026-02-27
 """
 
 import logging
+import argparse
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     LongType,
     IntegerType,
     DoubleType,
-    TimestampType,
-    DateType,
 )
-from pyspark.sql.window import Window
 
 
 # ──────────────────────────────────────────────
@@ -43,6 +57,30 @@ BUCKET_NAME = "datalake"
 RAW_HISTORY_PATH = f"s3a://{BUCKET_NAME}/raw/gdelt/history/"
 RAW_DAILY_PATH = f"s3a://{BUCKET_NAME}/raw/gdelt/daily/"
 FORMATTED_PATH = f"s3a://{BUCKET_NAME}/formatted/gdelt/events.parquet"
+
+
+# ──────────────────────────────────────────────
+# FILTRES — ÉVÉNEMENTS GÉOPOLITIQUES MAJEURS
+# ──────────────────────────────────────────────
+
+# Seuils de qualité et d'intensité afin de réduire le bruit
+FILTER_MIN_ARTICLES = 4        # Consensus médiatique minimal
+FILTER_MIN_GOLDSTEIN = 5.0     # Choc diplomatique/matériel fort (valeur absolue)
+FILTER_MIN_QUADCLASS = 2       # Cooperation (2) Conflits Verbaux (3) ou Matériels (4) uniquement
+
+# EventRootCode conservés :
+#   Tensions & Menaces
+#   10 Demand, 11 Disapprove, 12 Reject, 13 Threaten,
+#   15 Exhibit force posture, 17 Coerce
+#
+#   Chocs & Actions directes
+#   06 Material cooperation (ex: accords OPEP)
+#   08 Yield (ex: levée d'embargo)
+#   14 Protest (ex: grèves pétrolières)
+#   16 Reduce relations (ex: sanctions)
+#   18 Assault, 19 Fight, 20 Mass violence
+
+MAJOR_EVENT_CODES = [6, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
 
 # Colonnes conservées (schéma GDELT parquet)
@@ -110,6 +148,13 @@ def _get_spark() -> SparkSession:
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        # ── Perf S3A / LocalStack ──────────────────────────────────────────
+        .config("spark.hadoop.fs.s3a.connection.maximum", "200")
+        .config("spark.hadoop.fs.s3a.fast.upload", "true")
+        .config("spark.hadoop.fs.s3a.multipart.size", "67108864")   # 64 MB
+        .config("spark.sql.parquet.mergeSchema", "false")           # évite la lecture footer / fichier
+        .config("spark.sql.parquet.filterPushdown", "true")
+        .config("spark.driver.memory", "2g")
         .getOrCreate()
     )
 
@@ -126,6 +171,7 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     - Cast types
     - Parse dates
     - Suppression doublons sur GlobalEventID
+    - Filtre événements majeurs (NumArticles, GoldsteinScale, QuadClass, EventRootCode)
     - Tri chronologique
     """
 
@@ -165,20 +211,20 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
         .withColumn("ActionGeo_Long", F.col("ActionGeo_Long").cast(DoubleType()))
     )
 
-    # ── Dédoublonnage sur GlobalEventID ───────────────────────
-    window = Window.partitionBy("GlobalEventID").orderBy(F.monotonically_increasing_id())
-    before = df.count()
+    # ── Dédoublonnage sur GlobalEventID ───────────────────────────────────
+    # Note : filtrer avant dédoublonner réduirait le volume traité,
+    # mais Catalyst (Predicates Pushdown) réordonne automatiquement.
+    # L'ordre ici reste correct et lisible.
+    df = df.dropDuplicates(["GlobalEventID"])
 
-    df = (
-        df
-        .withColumn("_row_num", F.row_number().over(window))
-        .filter(F.col("_row_num") == 1)
-        .drop("_row_num")
+    # ── Filtre — Événements géopolitiques majeurs ─────────────
+    df = df.filter(
+        (F.col("Day") >= F.lit("2026-01-01").cast("date")) &
+        (F.col("NumArticles") >= FILTER_MIN_ARTICLES) &
+        (F.abs(F.col("GoldsteinScale")) >= FILTER_MIN_GOLDSTEIN) &
+        (F.col("QuadClass") >= FILTER_MIN_QUADCLASS) &
+        F.col("EventRootCode").isin(MAJOR_EVENT_CODES)
     )
-
-    after = df.count()
-    if before != after:
-        logger.info("Doublons supprimés : %d", before - after)
 
     # ── Tri chronologique ─────────────────────────────────────
     df = df.orderBy("DATEADDED")
@@ -187,9 +233,11 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
 
 
 def _write_parquet(df: DataFrame, path: str) -> None:
+    df = df.cache()
     count = df.count()
     df.coalesce(1).write.mode("overwrite").parquet(path)
     logger.info("Parquet écrit → %s (%d lignes)", path, count)
+    df.unpersist()
 
 
 # ──────────────────────────────────────────────
@@ -204,19 +252,20 @@ def format_history() -> None:
     logger.info("═" * 60)
 
     try:
-        df = spark.read.option("recursiveFileLookup", "true").parquet(RAW_HISTORY_PATH)
+        df = (
+            spark.read
+            .option("recursiveFileLookup", "true")
+            .option("mergeSchema", "false")
+            .parquet(RAW_HISTORY_PATH)
+        )
     except Exception as e:
         logger.error("Aucun fichier dans %s : %s", RAW_HISTORY_PATH, e)
         spark.stop()
         return
 
-    logger.info("Total brut : %d lignes", df.count())
-
     df = _clean_dataframe(df)
-    logger.info("Après nettoyage : %d lignes", df.count())
 
-    dt_min = df.agg(F.min("DATEADDED")).collect()[0][0]
-    dt_max = df.agg(F.max("DATEADDED")).collect()[0][0]
+    dt_min, dt_max = df.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df, FORMATTED_PATH)
@@ -229,40 +278,42 @@ def format_history() -> None:
 # 2. FORMAT DAILY (INCRÉMENTAL)
 # ──────────────────────────────────────────────
 
-def format_daily() -> None:
+def format_daily(target_date: str) -> None:
+    """
+    Mise à jour incrémentale : lit uniquement le dossier du jour cible,
+    fusionne avec le parquet formaté existant, nettoie et écrase.
+
+    Args:
+        target_date: Date au format YYYY-MM-DD (injectée par Airflow via {{ ds }}).
+    """
     spark = _get_spark()
 
     logger.info("═" * 60)
     logger.info("FORMAT DAILY — Mise à jour incrémentale")
+    logger.info("Date cible : %s", target_date)
     logger.info("═" * 60)
 
     # Charger parquet existant
     try:
         df_existing = spark.read.parquet(FORMATTED_PATH)
-        logger.info("Fichier existant : %d lignes", df_existing.count())
     except Exception:
         logger.warning("Aucun fichier formaté existant. Lance d'abord format_history().")
         spark.stop()
         return
 
-    # Charger nouveaux fichiers
+    # Charger uniquement les fichiers du jour cible (pas de recursiveFileLookup)
+    target_path = f"{RAW_DAILY_PATH}{target_date}/"
     try:
-        df_new = spark.read.option("recursiveFileLookup", "true").parquet(RAW_DAILY_PATH)
+        df_new = spark.read.parquet(target_path)
     except Exception:
-        logger.info("Aucun nouveau fichier dans %s", RAW_DAILY_PATH)
+        logger.info("Aucun fichier dans %s — rien à faire.", target_path)
         spark.stop()
         return
 
-    logger.info("Nouvelles lignes brutes : %d", df_new.count())
-
     df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
-    logger.info("Total avant dédoublonnage : %d", df_merged.count())
-
     df_merged = _clean_dataframe(df_merged)
-    logger.info("Total après dédoublonnage : %d", df_merged.count())
 
-    dt_min = df_merged.agg(F.min("DATEADDED")).collect()[0][0]
-    dt_max = df_merged.agg(F.max("DATEADDED")).collect()[0][0]
+    dt_min, dt_max = df_merged.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df_merged, FORMATTED_PATH)
@@ -276,9 +327,25 @@ def format_daily() -> None:
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "daily":
-        format_daily()
+    parser = argparse.ArgumentParser(description="Formatting GDELT (PySpark)")
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=["history", "daily"],
+        help="Mode : 'history' pour l'init, 'daily' pour l'incrémental.",
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help="Date cible au format YYYY-MM-DD (obligatoire en mode daily). Airflow passe {{ ds }}.",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "daily":
+        if not args.date:
+            parser.error("--date est obligatoire en mode daily.")
+        format_daily(args.date)
     else:
         format_history()
