@@ -20,7 +20,7 @@ services:
   # 1. LE STOCKAGE DISTRIBUÉ (Le Faux Amazon S3)
   # ==========================================
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.8   # v3.x = persistance S3 stable en Community
     container_name: datalake_s3
     ports:
       - "4566:4566"            # Le port magique pour parler à S3
@@ -28,9 +28,9 @@ services:
       - SERVICES=s3            # On n'allume que S3 pour économiser la RAM du PC
       - DEBUG=1
       - AWS_DEFAULT_REGION=eu-west-1
-      - PERSISTENCE=1          # Force la sauvegarde des données S3 sur disque
+      - PERSISTENCE=1          # Sauvegarde les objets S3 dans /var/lib/localstack/state/
     volumes:
-      - "${LOCALSTACK_VOLUME_DIR:-./volume_s3}:/var/lib/localstack"
+      - localstack_data:/var/lib/localstack
       - ./localstack_init.sh:/etc/localstack/init/ready.d/init.sh  # Exécuté auto au démarrage
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -139,3 +139,4 @@ services:
 volumes:
   postgres_data:
   elastic_data:
+  localstack_data:

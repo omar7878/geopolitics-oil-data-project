@@ -37,10 +37,11 @@ Enrichissement (Silver) :
 
 Usage :
   poetry run python -m src.transformation.clean_yfinance --mode history
-  poetry run python -m src.transformation.clean_yfinance --mode daily --date 2026-02-27
+  Exemple: poetry run python -m src.transformation.clean_yfinance --mode daily --date 2026-02-27
 """
 
-import loggingimport argparse
+import logging
+import argparse
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, LongType, TimestampType
@@ -89,6 +90,13 @@ def _get_spark() -> SparkSession:
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+        # ── Perf S3A / LocalStack ──────────────────────────────────────────
+        .config("spark.hadoop.fs.s3a.connection.maximum", "200")
+        .config("spark.hadoop.fs.s3a.fast.upload", "true")
+        .config("spark.hadoop.fs.s3a.multipart.size", "67108864")   # 64 MB
+        .config("spark.sql.parquet.mergeSchema", "false")           # évite la lecture footer / fichier
+        .config("spark.sql.parquet.filterPushdown", "true")
+        .config("spark.driver.memory", "2g")
         .getOrCreate()
     )
 
@@ -172,7 +180,12 @@ def format_history() -> None:
     logger.info("═" * 60)
 
     try:
-        df = spark.read.option("recursiveFileLookup", "true").parquet(RAW_HISTORY_PATH)
+        df = (
+            spark.read
+            .option("recursiveFileLookup", "true")
+            .option("mergeSchema", "false")
+            .parquet(RAW_HISTORY_PATH)
+        )
     except Exception as e:
         logger.error("Aucun fichier Parquet trouvé dans %s : %s", RAW_HISTORY_PATH, e)
         spark.stop()
