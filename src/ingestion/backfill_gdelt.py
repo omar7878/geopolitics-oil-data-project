@@ -40,7 +40,7 @@ GDELT_COLUMNS = [
     "ActionGeo_FeatureID", "DATEADDED", "SOURCEURL"
 ]
 
-def run_backfill(start_date: datetime = datetime(2026, 2, 26, 0, 0, tzinfo=timezone.utc)):
+def run_backfill(start_date: datetime = datetime(2026, 2, 16, 0, 0, tzinfo=timezone.utc)):
     print(f"📂 Récupération de l'historique GDELT depuis {start_date} (Master File List)...")
     
     try:
