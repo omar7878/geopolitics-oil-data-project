@@ -284,20 +284,21 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
     """
     GroupBy target_open_datetime :
       - gap_duration_15m  = nombre de quarts d'heure accumulés
-      - {score}_smoothed  = sum(score) / gap_duration_15m
+      - {score}_smoothed  = 0.8 × max(score) + 0.2 × mean(score)
+        → Hybride : le pic de stress domine (80%), la moyenne contextualise (20%)
+        → Évite la sous-estimation des weekends due au lissage linéaire
       - {score}_sum       = somme brute (pour le modèle ML)
       - total_event_count = somme du nombre d'événements
       - period_main_actor = dominant_country du pire événement
-        via max(struct(geo_score_raw, main_actor))
     """
-    logger.info("Étape 4 : Lissage des scores sur les périodes de fermeture")
+    logger.info("Étape 4 : Lissage hybride (0.8×max + 0.2×mean) sur les périodes de fermeture")
+
+    ALPHA = 0.8   # poids du pic (max)
 
     # ── Agrégation par target_open_datetime ──
     agg_exprs = [
         F.count("*").alias("gap_duration_15m"),
         F.sum("event_count").alias("total_event_count"),
-        # Struct trick : main_actor du pire événement de toute la période de fermeture
-        # (main_actor est déjà le dominant_country de la tranche 15 min via l'étape 1)
         F.max(F.struct(
             F.col("geo_score_raw"),
             F.col("main_actor"),
@@ -305,14 +306,16 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
     ]
     for c in SCORE_COLS:
         agg_exprs.append(F.sum(c).alias(f"{c}_sum"))
+        agg_exprs.append(F.max(c).alias(f"{c}_max"))
 
     df_smoothed = df.groupBy("target_open_datetime").agg(*agg_exprs)
 
-    # ── Scores lissés = somme / nombre de quarts d'heure accumulés ──
+    # ── Score hybride = 0.8 × max + 0.2 × mean ──────────────────
     for c in SCORE_COLS:
+        mean_col = F.col(f"{c}_sum") / F.col("gap_duration_15m")
         df_smoothed = df_smoothed.withColumn(
             f"{c}_smoothed",
-            F.round(F.col(f"{c}_sum") / F.col("gap_duration_15m"), 6),
+            F.round(F.lit(ALPHA) * F.col(f"{c}_max") + F.lit(1 - ALPHA) * mean_col, 6),
         )
 
     # ── Extraire le period_main_actor ──

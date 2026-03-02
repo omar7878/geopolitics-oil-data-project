@@ -1,0 +1,31 @@
+{
+  "mappings": {
+    "properties": {
+      "timestamp":              {"type": "date",    "format": "strict_date_time||epoch_millis"},
+      "Open":                   {"type": "float"},
+      "High":                   {"type": "float"},
+      "Low":                    {"type": "float"},
+      "Close":                  {"type": "float"},
+      "Volume":                 {"type": "long"},
+      "Volatility_Range":       {"type": "float"},
+      "Variation_Pct":          {"type": "float"},
+      "geo_I_smoothed":         {"type": "float"},
+      "geo_B_smoothed":         {"type": "float"},
+      "geo_S_smoothed":         {"type": "float"},
+      "geo_score_raw_smoothed": {"type": "float"},
+      "geo_I_sum":              {"type": "float"},
+      "geo_B_sum":              {"type": "float"},
+      "geo_S_sum":              {"type": "float"},
+      "geo_score_raw_sum":      {"type": "float"},
+      "total_event_count":      {"type": "float"},
+      "gap_duration_15m":       {"type": "integer"},
+      "period_main_actor":      {"type": "keyword"},
+      "score_pct_7d":           {"type": "float"}
+    }
+  },
+  "settings": {
+    "number_of_shards":   1,
+    "number_of_replicas": 0,
+    "refresh_interval":   "1s"
+  }
+}
