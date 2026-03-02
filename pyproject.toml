@@ -13,7 +13,7 @@ python = "^3.10"
 requests = "^2.31"              # Appels HTTP vers l'API GDELT
 boto3 = "^1.34"                 # Client AWS S3 (pour écrire sur LocalStack)
 yfinance = "^0.2"               # Téléchargement données boursières Yahoo Finance (WTI)
-pyarrow = "^15.0"               # Moteur Parquet pour pandas (to_parquet / read_parquet)
+pyarrow = ">=15.0"              # Moteur Parquet pour pandas (to_parquet / read_parquet)
 # confluent-kafka = "^2.3"      # PHASE 2 — Kafka streaming (à décommenter)
 
 # -- Transformation (Spark) --
@@ -29,6 +29,8 @@ s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
 matplotlib = "^3.10.8"
 awscli = "^1.36"                 # AWS CLI (binaire aws)
 awscli-local = "^0.22"           # Wrapper awslocal → LocalStack automatiquement
+xgboost = "^3.2.0"
+tensorflow = "^2.20.0"
 
 [tool.poetry.group.airflow.dependencies]
 # Utile en local uniquement pour l'autocomplétion IDE
