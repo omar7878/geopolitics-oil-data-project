@@ -127,7 +127,7 @@ def _get_spark() -> SparkSession:
     return (
         SparkSession.builder
         .appName("clean_gdelt")
-        .master("local[*]")
+        .master("local[2]")
         .config(
             "spark.jars.packages",
             "org.apache.hadoop:hadoop-aws:3.3.4,"
@@ -145,7 +145,10 @@ def _get_spark() -> SparkSession:
         .config("spark.hadoop.fs.s3a.multipart.size", "67108864")   # 64 MB
         .config("spark.sql.parquet.mergeSchema", "false")           # évite la lecture footer / fichier
         .config("spark.sql.parquet.filterPushdown", "true")
-        .config("spark.driver.memory", "2g")
+        .config("spark.driver.memory", "1g")
+        .config("spark.driver.maxResultSize", "512m")
+        .config("spark.sql.shuffle.partitions", "10")
+        .config("spark.driver.extraJavaOptions", "-XX:+UseG1GC")
         .getOrCreate()
     )
 
@@ -256,7 +259,7 @@ def _add_geo_scores(df: DataFrame) -> DataFrame:
 # CLEANING LOGIC (TA TRANSFO INITIALE ADAPTÉE)
 # ──────────────────────────────────────────────
 
-def _clean_dataframe(df: DataFrame) -> DataFrame:
+def _clean_dataframe(df: DataFrame, sort: bool = True) -> DataFrame:
     """
     Applique le nettoyage GDELT :
 
@@ -321,17 +324,15 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     df = _add_geo_scores(df)
 
     # ── Tri chronologique ─────────────────────────────────────
-    df = df.orderBy("DATEADDED")
+    if sort:
+        df = df.orderBy("DATEADDED")
 
     return df
 
 
 def _write_parquet(df: DataFrame, path: str) -> None:
-    df = df.cache()
-    count = df.count()
-    df.coalesce(1).write.mode("overwrite").parquet(path)
-    logger.info("Parquet écrit → %s (%d lignes)", path, count)
-    df.unpersist()
+    df.coalesce(4).write.mode("overwrite").parquet(path)
+    logger.info("Parquet écrit → %s", path)
 
 
 # ──────────────────────────────────────────────
@@ -339,33 +340,80 @@ def _write_parquet(df: DataFrame, path: str) -> None:
 # ──────────────────────────────────────────────
 
 def format_history() -> None:
-    spark = _get_spark()
+    """
+    Traitement par lots de jours pour éviter l'OOM JVM.
+    On liste les dossiers de dates via boto3, puis on traite
+    BATCH_DAYS jours à la fois et on écrit en mode append.
+    """
+    import boto3
 
-    logger.info("═" * 60)
-    logger.info("FORMAT HISTORY — Création fichier initial")
-    logger.info("═" * 60)
+    BATCH_DAYS = 3  # Nb de jours par batch Spark
 
-    try:
-        df = (
-            spark.read
-            .option("recursiveFileLookup", "true")
-            .option("mergeSchema", "false")
-            .parquet(RAW_HISTORY_PATH)
-        )
-    except Exception as e:
-        logger.error("Aucun fichier dans %s : %s", RAW_HISTORY_PATH, e)
-        spark.stop()
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+        region_name="eu-west-1",
+    )
+
+    # Lister les sous-dossiers de date (ex: raw/gdelt/history/2026-01-04/)
+    prefix = "raw/gdelt/history/"
+    paginator = s3_client.get_paginator("list_objects_v2")
+    date_folders = set()
+    for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix, Delimiter="/"):
+        for cp in page.get("CommonPrefixes", []):
+            folder = cp["Prefix"]  # ex: "raw/gdelt/history/2026-01-04/"
+            date_folders.add(folder)
+
+    date_folders = sorted(date_folders)
+    if not date_folders:
+        logger.error("Aucun dossier trouvé dans %s", prefix)
         return
 
-    df = _clean_dataframe(df)
+    logger.info("═" * 60)
+    logger.info("FORMAT HISTORY — %d jours à traiter (lots de %d)", len(date_folders), BATCH_DAYS)
+    logger.info("═" * 60)
 
-    dt_min, dt_max = df.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
-    logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
+    spark = _get_spark()
+    first_batch = True
 
-    _write_parquet(df, FORMATTED_PATH)
+    for i in range(0, len(date_folders), BATCH_DAYS):
+        batch = date_folders[i: i + BATCH_DAYS]
+        paths = [f"s3a://{BUCKET_NAME}/{f}" for f in batch]
+        logger.info("Batch %d/%d — jours %s → %s",
+                    i // BATCH_DAYS + 1,
+                    (len(date_folders) + BATCH_DAYS - 1) // BATCH_DAYS,
+                    batch[0].split("/")[-2],
+                    batch[-1].split("/")[-2])
+
+        try:
+            df = (
+                spark.read
+                .option("mergeSchema", "false")
+                .parquet(*paths)
+            )
+        except Exception as e:
+            logger.warning("Batch ignoré (pas de fichiers lisibles) : %s", e)
+            continue
+
+        df = _clean_dataframe(df, sort=False)
+        write_mode = "overwrite" if first_batch else "append"
+        df.write.mode(write_mode).parquet(FORMATTED_PATH)
+        logger.info("  → batch écrit (%s)", write_mode)
+        first_batch = False
+        spark.catalog.clearCache()
+
+    # ── Passe finale : dédoublonnage global + tri ──────────────
+    logger.info("Passe finale — dédoublonnage global + tri")
+    spark2 = _get_spark()
+    df_final = spark2.read.parquet(FORMATTED_PATH)
+    df_final = df_final.dropDuplicates(["GlobalEventID"]).orderBy("DATEADDED")
+    df_final.write.mode("overwrite").parquet(FORMATTED_PATH)
+    n = spark2.read.parquet(FORMATTED_PATH).count()
+    logger.info("  → %d lignes finales", n)
+    spark2.stop()
     logger.info("Format history terminé ✅")
-
-    spark.stop()
 
 
 # ──────────────────────────────────────────────
