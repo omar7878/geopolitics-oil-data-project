@@ -30,7 +30,7 @@ services:
       - AWS_DEFAULT_REGION=eu-west-1
       - PERSISTENCE=1          # Sauvegarde les objets S3 dans /var/lib/localstack/state/
     volumes:
-      - localstack_data:/var/lib/localstack
+      - ./volume_s3:/var/lib/localstack  # Bind mount local pour meilleure persistance
       - ./localstack_init.sh:/etc/localstack/init/ready.d/init.sh  # Exécuté auto au démarrage
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -139,4 +139,3 @@ services:
 volumes:
   postgres_data:
   elastic_data:
-  localstack_data:

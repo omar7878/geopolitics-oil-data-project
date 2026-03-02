@@ -204,6 +204,7 @@ geopolitics-oil-data-project/
 │   └── localstack_init.sh        # Création auto du bucket S3 au démarrage
 ├── config/
 │   └── elastic_mapping.json      # Mapping Elasticsearch
+├── .env.example                  # Template des variables d'environnement
 ├── pyproject.toml                # Dépendances Poetry
 └── ARCHITECTURE.md               # Architecture détaillée
 ```
