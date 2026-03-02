@@ -27,6 +27,7 @@ python-dotenv = "^1.0"          # Charge les variables du .env dans les scripts
 pandas = "^2.1"                 # Manipulation de données (utilitaire)
 s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
 matplotlib = "^3.10.8"
+seaborn = "^0.13"               # Visualisation statistique
 awscli = "^1.36"                 # AWS CLI (binaire aws)
 awscli-local = "^0.22"           # Wrapper awslocal → LocalStack automatiquement
 xgboost = "^3.2.0"

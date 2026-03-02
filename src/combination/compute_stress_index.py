@@ -406,11 +406,12 @@ def _final_join_and_percentile(df_wti: DataFrame, df_smoothed: DataFrame) -> Dat
         F.col("geo_S_smoothed"),
         F.col("geo_score_raw_smoothed"),
 
-        # GDELT brut (sommes accumulées)
+        # GDELT brut (sommes + max par période de fermeture)
         F.col("geo_I_sum"),
         F.col("geo_B_sum"),
         F.col("geo_S_sum"),
         F.col("geo_score_raw_sum"),
+        F.col("geo_score_raw_max"),   # pic de stress (pour calibration ALPHA en notebook)
 
         # Métadonnées
         F.col("total_event_count"),
