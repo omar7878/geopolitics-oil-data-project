@@ -87,6 +87,9 @@ KEEP_COLS = [
     "Actor2CountryCode",
     "Actor2Type1Code",
 
+    # ActionGeo_CountryCode est conservé pour le calcul du dominant_country
+    # (il est déjà présent plus bas, on s'assure de ne pas le dupliquer)
+
     "EventCode",
     "EventRootCode",
     "QuadClass",
@@ -222,12 +225,27 @@ def _add_geo_scores(df: DataFrame) -> DataFrame:
     # Score raw = I^2 * B * S
     score_raw = (I * I) * B * S
 
+    # dominant_country = le pays avec la classe la plus élevée parmi les 3
+    # En cas d'égalité : Actor1 > Actor2 > ActionGeo (priorité à l'initiateur)
+    dominant_country = (
+        F.when(
+            (F.col("geo_C1") >= F.col("geo_C2")) & (F.col("geo_C1") >= F.col("geo_C3")),
+            F.col("Actor1CountryCode")
+        ).when(
+            F.col("geo_C2") >= F.col("geo_C3"),
+            F.col("Actor2CountryCode")
+        ).otherwise(
+            F.col("ActionGeo_CountryCode")
+        )
+    )
+
     df = (
         df
         .withColumn("geo_I", I.cast(DoubleType()))
         .withColumn("geo_B", B.cast(DoubleType()))
         .withColumn("geo_S", S.cast(DoubleType()))
         .withColumn("geo_score_raw", score_raw.cast(DoubleType()))
+        .withColumn("dominant_country", dominant_country)
         .drop("geo_C1", "geo_C2", "geo_C3")
     )
 

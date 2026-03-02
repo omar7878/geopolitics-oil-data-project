@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # FONCTION PRINCIPALE
 # ──────────────────────────────────────────────
 
-def extract_historical_data(start_date: datetime = datetime(2026, 2, 19, 0, 0, tzinfo=timezone.utc)) -> None:
+def extract_historical_data(start_date: datetime = datetime(2026, 2, 26, 0, 0, tzinfo=timezone.utc)) -> None:
     """
     Télécharge l'historique du pétrole WTI depuis Yahoo Finance,
     nettoie le DataFrame et le sauvegarde en Parquet.
