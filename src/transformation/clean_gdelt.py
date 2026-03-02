@@ -45,6 +45,7 @@ from pyspark.sql.types import (
     IntegerType,
     DoubleType,
 )
+from pyspark.sql.window import Window
 
 
 # ──────────────────────────────────────────────
@@ -63,22 +64,9 @@ FORMATTED_PATH = f"s3a://{BUCKET_NAME}/formatted/gdelt/events.parquet"
 # FILTRES — ÉVÉNEMENTS GÉOPOLITIQUES MAJEURS
 # ──────────────────────────────────────────────
 
-# Seuils de qualité et d'intensité afin de réduire le bruit
 FILTER_MIN_ARTICLES = 4        # Consensus médiatique minimal
 FILTER_MIN_GOLDSTEIN = 5.0     # Choc diplomatique/matériel fort (valeur absolue)
 FILTER_MIN_QUADCLASS = 2       # Cooperation (2) Conflits Verbaux (3) ou Matériels (4) uniquement
-
-# EventRootCode conservés :
-#   Tensions & Menaces
-#   10 Demand, 11 Disapprove, 12 Reject, 13 Threaten,
-#   15 Exhibit force posture, 17 Coerce
-#
-#   Chocs & Actions directes
-#   06 Material cooperation (ex: accords OPEP)
-#   08 Yield (ex: levée d'embargo)
-#   14 Protest (ex: grèves pétrolières)
-#   16 Reduce relations (ex: sanctions)
-#   18 Assault, 19 Fight, 20 Mass violence
 
 MAJOR_EVENT_CODES = [6, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
@@ -160,6 +148,93 @@ def _get_spark() -> SparkSession:
 
 
 # ──────────────────────────────────────────────
+# __________________ SCORE GEO (RAW) __________________
+# ──────────────────────────────────────────────
+
+def _country_class_expr(colname: str) -> F.Column:
+    """
+    Map pays -> classe (1..4) selon ta taxonomie.
+    Tout pays absent => 1.
+    """
+    country_weights = {
+        # Classe 4 — Game Changers
+        "USA": 4, "SAU": 4, "RUS": 4, "CHN": 4,
+
+        # Classe 3 — Piliers Offre & Hubs / Verrous
+        "IRN": 3, "IRQ": 3, "KWT": 3, "ARE": 3, "QAT": 3,
+        "CAN": 3, "BRA": 3, "NOR": 3, "MEX": 3, "KAZ": 3,
+        "EGY": 3, "TUR": 3, "PAN": 3, "YEM": 3,
+
+        # Classe 2 — Influence indirecte / instables / diplomatie
+        "VEN": 2, "NGA": 2, "LBY": 2, "AGO": 2,
+        "FRA": 2, "GBR": 2, "DEU": 2, "JPN": 2,
+        "IND": 2, "ISR": 2, "KOR": 2,
+    }
+
+    mapping = F.create_map([F.lit(x) for kv in country_weights.items() for x in kv])
+    return F.coalesce(mapping.getItem(F.col(colname)), F.lit(1)).cast(IntegerType())
+
+
+def _clip01(x: F.Column) -> F.Column:
+    return F.greatest(F.lit(0.0), F.least(F.lit(1.0), x))
+
+
+def _add_geo_scores(df: DataFrame) -> DataFrame:
+    """
+    Ajoute 4 colonnes :
+      - geo_I         : importance géo (Leader+Bonus), I ∈ [1,7]
+      - geo_B         : buzz = log1p(NumArticles)
+      - geo_S         : sévérité bornée (Goldstein + Tone)
+      - geo_score_raw : score brut combiné
+    """
+
+    # Classes pays (1..4)
+    c1 = _country_class_expr("Actor1CountryCode")
+    c2 = _country_class_expr("Actor2CountryCode")
+    c3 = _country_class_expr("ActionGeo_CountryCode")
+
+    df = (
+        df
+        .withColumn("geo_C1", c1)
+        .withColumn("geo_C2", c2)
+        .withColumn("geo_C3", c3)
+    )
+
+    # I = max + 0.5 * ( (c1-1)+(c2-1)+(c3-1) - (max-1) )
+    maxc = F.greatest(F.col("geo_C1"), F.col("geo_C2"), F.col("geo_C3"))
+    I = (
+        maxc.cast(DoubleType()) +
+        F.lit(0.5) * (
+            (F.col("geo_C1") + F.col("geo_C2") + F.col("geo_C3") - maxc) - F.lit(2)
+        ).cast(DoubleType())
+    )
+
+    # B = log(1+NumArticles)
+    B = F.log1p(F.col("NumArticles").cast(DoubleType()))
+
+    # g = clip(-Goldstein/10, 0, 1), t = clip(-AvgTone/100, 0, 1)
+    g = _clip01(-F.col("GoldsteinScale") / F.lit(10.0))
+    t = _clip01(-F.col("AvgTone") / F.lit(100.0))
+
+    # S = 1 + 1.5g + 1.0t   (borné dans [1, 3.5])
+    S = F.lit(1.0) + F.lit(1.5) * g + F.lit(1.0) * t
+
+    # Score raw = I^2 * B * S
+    score_raw = (I * I) * B * S
+
+    df = (
+        df
+        .withColumn("geo_I", I.cast(DoubleType()))
+        .withColumn("geo_B", B.cast(DoubleType()))
+        .withColumn("geo_S", S.cast(DoubleType()))
+        .withColumn("geo_score_raw", score_raw.cast(DoubleType()))
+        .drop("geo_C1", "geo_C2", "geo_C3")
+    )
+
+    return df
+
+
+# ──────────────────────────────────────────────
 # CLEANING LOGIC (TA TRANSFO INITIALE ADAPTÉE)
 # ──────────────────────────────────────────────
 
@@ -174,7 +249,6 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     - Filtre événements majeurs (NumArticles, GoldsteinScale, QuadClass, EventRootCode)
     - Tri chronologique
     """
-
 
     df = df.select(*KEEP_COLS)
 
@@ -212,9 +286,6 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
     )
 
     # ── Dédoublonnage sur GlobalEventID ───────────────────────────────────
-    # Note : filtrer avant dédoublonner réduirait le volume traité,
-    # mais Catalyst (Predicates Pushdown) réordonne automatiquement.
-    # L'ordre ici reste correct et lisible.
     df = df.dropDuplicates(["GlobalEventID"])
 
     # ── Filtre — Événements géopolitiques majeurs ─────────────
@@ -225,6 +296,11 @@ def _clean_dataframe(df: DataFrame) -> DataFrame:
         (F.col("QuadClass") >= FILTER_MIN_QUADCLASS) &
         F.col("EventRootCode").isin(MAJOR_EVENT_CODES)
     )
+
+    # ─────────────────────────────────────────────────────────────
+    # __________________ AJOUT SCORES GEO (4 COLONNES) _____________
+    # ─────────────────────────────────────────────────────────────
+    df = _add_geo_scores(df)
 
     # ── Tri chronologique ─────────────────────────────────────
     df = df.orderBy("DATEADDED")
