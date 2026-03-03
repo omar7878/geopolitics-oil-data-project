@@ -174,7 +174,6 @@ def _write_parquet(df: DataFrame, path: str) -> None:
 # ──────────────────────────────────────────────
 
 def format_history() -> None:
-    # ... Reste du code inchangé ...
     spark = _get_spark()
     logger.info("═" * 60)
     logger.info("FORMAT HISTORY — Création du fichier formaté initial")
@@ -263,7 +262,7 @@ def format_daily(target_date: str) -> None:
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df_merged, FORMATTED_PATH)
-    logger.info("Format daily terminé ✅")
+    logger.info("Format daily terminé")
     spark.stop()
 
 
