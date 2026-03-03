@@ -34,6 +34,7 @@ Usage :
 
 import argparse
 import logging
+import os
 from datetime import datetime, timedelta
 
 from pyspark.sql import SparkSession, DataFrame
@@ -44,7 +45,7 @@ from pyspark.sql.window import Window
 # CONFIGURATION
 # ──────────────────────────────────────────────
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 WTI_FORMATTED_PATH   = f"s3a://{BUCKET_NAME}/formatted/yahoofinance/wti.parquet"
@@ -283,8 +284,8 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
     """
     GroupBy target_open_datetime :
       - gap_duration_15m  = nombre de quarts d'heure accumulés
-      - {score}_smoothed  = 0.8 × max(score) + 0.2 × mean(score)
-        → Hybride : le pic de stress domine (80%), la moyenne contextualise (20%)
+      - {score}_smoothed  = 0.25 × max(score) + 0.75 × mean(score)
+        → Hybride : le pic de stress domine (25%), la moyenne contextualise (75%)
         → Évite la sous-estimation des weekends due au lissage linéaire
       - {score}_sum       = somme brute (pour le modèle ML)
       - total_event_count = somme du nombre d'événements

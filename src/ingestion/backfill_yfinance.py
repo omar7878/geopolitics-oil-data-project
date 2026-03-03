@@ -31,7 +31,7 @@ TICKER = "CL=F"
 INTERVAL = "15m"
 
 # S3 (LocalStack)
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 S3_HISTORY_PREFIX = "raw/yahoofinance/history"
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 import requests
@@ -36,7 +37,7 @@ import requests
 # CONFIG
 # ──────────────────────────────────────────────
 
-KIBANA_URL = "http://localhost:5601"
+KIBANA_URL = os.getenv("KIBANA_URL", "http://localhost:5601")
 ES_INDEX = "oil-market-analysis"
 DATA_VIEW_ID = "oil-market-dv"
 DASHBOARD_ID = "oil-market-dashboard"

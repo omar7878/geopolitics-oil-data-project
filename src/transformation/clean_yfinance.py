@@ -42,6 +42,7 @@ Usage :
 
 import logging
 import argparse
+import os
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, LongType, TimestampType
@@ -51,7 +52,7 @@ from pyspark.sql.window import Window
 # CONFIGURATION
 # ──────────────────────────────────────────────
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 RAW_HISTORY_PATH = f"s3a://{BUCKET_NAME}/raw/yahoofinance/history/"

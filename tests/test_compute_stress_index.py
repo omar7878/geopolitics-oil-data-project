@@ -196,7 +196,7 @@ class TestForwardMapToOpen:
 
 class TestSmoothClosedPeriods:
     def test_hybride_formula(self, spark: SparkSession) -> None:
-        """Vérifie le lissage 0.8×max + 0.2×mean."""
+        """Vérifie le lissage 0.25×max + 0.75×mean."""
         data = [
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=1.0, geo_B=2.0, geo_S=1.0, geo_score_raw=10.0,
@@ -210,8 +210,8 @@ class TestSmoothClosedPeriods:
         row = result.first()
 
         # geo_score_raw : max=20, sum=30, gap=2, mean=15
-        # smoothed = 0.8×20 + 0.2×15 = 16+3 = 19
-        assert abs(row["geo_score_raw_smoothed"] - 19.0) < 0.01
+        # smoothed = 0.25×20 + 0.75×15 = 5+11.25 = 16.25
+        assert abs(row["geo_score_raw_smoothed"] - 16.25) < 0.01
 
     def test_gap_duration_15m(self, spark: SparkSession) -> None:
         data = [

@@ -27,7 +27,7 @@ import yfinance as yf
 TICKER = "CL=F"
 INTERVAL = "15m"
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 os.environ["AWS_ACCESS_KEY_ID"] = "test"
