@@ -241,11 +241,21 @@ def format_daily(target_date: str) -> None:
 
     logger.info("Nouvelles lignes brutes : %d", df_new.count())
 
-    df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
-    logger.info("Total avant dédoublonnage : %d lignes", df_merged.count())
+    # Nettoyer UNIQUEMENT les nouvelles données (les existantes sont déjà clean).
+    df_new_clean = _clean_dataframe(df_new)
 
-    df_merged = _clean_dataframe(df_merged)
-    logger.info("Total après dédoublonnage : %d lignes", df_merged.count())
+    # Union + dédoublonnage
+    df_merged = df_existing.unionByName(df_new_clean, allowMissingColumns=False)
+
+    # Dédoublonnage sur Datetime (garde la première occurrence)
+    window_dedup = Window.partitionBy("Datetime").orderBy(F.monotonically_increasing_id())
+    df_merged = (
+        df_merged
+        .withColumn("_row_num", F.row_number().over(window_dedup))
+        .filter(F.col("_row_num") == 1)
+        .drop("_row_num")
+        .orderBy("Datetime")
+    )
 
     dt_min = df_merged.agg(F.min("Datetime")).collect()[0][0]
     dt_max = df_merged.agg(F.max("Datetime")).collect()[0][0]

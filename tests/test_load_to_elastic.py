@@ -23,6 +23,8 @@ from src.indexing.load_to_elastic import (
     _ensure_index,
     _generate_actions,
     _normalize_timestamp,
+    _read_parquet_from_s3,
+    _get_es_client,
     main,
 )
 
@@ -55,7 +57,7 @@ def gold_df() -> pd.DataFrame:
             "geo_score_raw_sum":      [11312.02, 2090.97],
             "total_event_count":      [461.0, 73.0],
             "gap_duration_15m":       [5, 1],
-            "period_main_actor":      ["USA", "USA"],
+            "period_actor_country":      ["USA", "USA"],
             "score_pct_7d":           [50.0, 0.0],
         }
     )
@@ -217,3 +219,85 @@ class TestMain:
         mock_es_client.assert_called_once()
         mock_ensure.assert_called_once()
         mock_bulk_idx.assert_called_once()
+
+
+# ──────────────────────────────────────────────
+# _read_parquet_from_s3 — mocked S3
+# ──────────────────────────────────────────────
+
+
+class TestReadParquetFromS3:
+    @patch("src.indexing.load_to_elastic.boto3")
+    def test_raises_when_no_parquet_found(self, mock_boto3) -> None:
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+        mock_client.list_objects_v2.return_value = {"Contents": []}
+
+        with pytest.raises(FileNotFoundError, match="Aucun fichier Parquet"):
+            _read_parquet_from_s3()
+
+    @patch("src.indexing.load_to_elastic.boto3")
+    def test_reads_and_concatenates_parquet_files(self, mock_boto3) -> None:
+        import io as io_mod
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+        mock_client.list_objects_v2.return_value = {
+            "Contents": [
+                {"Key": "combined/stress_index/part-00000.snappy.parquet"},
+            ]
+        }
+
+        # Create a real parquet buffer
+        df_sample = pd.DataFrame({"Datetime": ["2026-02-16"], "Close": [62.93]})
+        buf = io_mod.BytesIO()
+        df_sample.to_parquet(buf, engine="pyarrow", index=False)
+        buf.seek(0)
+
+        mock_body = MagicMock()
+        mock_body.read.return_value = buf.getvalue()
+        mock_client.get_object.return_value = {"Body": mock_body}
+
+        result = _read_parquet_from_s3()
+        assert len(result) == 1
+        assert "Datetime" in result.columns
+
+    @patch("src.indexing.load_to_elastic.boto3")
+    def test_filters_non_parquet_keys(self, mock_boto3) -> None:
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+        mock_client.list_objects_v2.return_value = {
+            "Contents": [
+                {"Key": "combined/stress_index/_SUCCESS"},  # not parquet
+            ]
+        }
+
+        with pytest.raises(FileNotFoundError):
+            _read_parquet_from_s3()
+
+
+# ──────────────────────────────────────────────
+# _get_es_client — mocked ES
+# ──────────────────────────────────────────────
+
+
+class TestGetEsClient:
+    @patch("src.indexing.load_to_elastic.Elasticsearch")
+    def test_returns_client_when_ping_ok(self, mock_es_cls) -> None:
+        mock_client = MagicMock()
+        mock_client.ping.return_value = True
+        mock_es_cls.return_value = mock_client
+
+        result = _get_es_client()
+        assert result is mock_client
+
+    @patch("src.indexing.load_to_elastic.Elasticsearch")
+    def test_raises_on_ping_failure(self, mock_es_cls) -> None:
+        mock_client = MagicMock()
+        mock_client.ping.return_value = False
+        mock_es_cls.return_value = mock_client
+
+        with pytest.raises(ConnectionError, match="Impossible de joindre"):
+            _get_es_client()

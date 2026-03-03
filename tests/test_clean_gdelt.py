@@ -88,17 +88,17 @@ class TestCountryClassExpr:
     def test_game_changer_returns_4(self, spark: SparkSession) -> None:
         df = spark.createDataFrame([Row(country="USA")])
         result = df.select(_country_class_expr("country").alias("cls")).first()
-        assert result["cls"] == 4
+        assert result["cls"] == 4  # USA weight = 4 in COUNTRY_WEIGHTS_ISO3
 
-    def test_pilier_offre_returns_3(self, spark: SparkSession) -> None:
+    def test_pilier_offre_returns_6(self, spark: SparkSession) -> None:
         df = spark.createDataFrame([Row(country="IRN")])
         result = df.select(_country_class_expr("country").alias("cls")).first()
-        assert result["cls"] == 3
+        assert result["cls"] == 6
 
-    def test_influence_indirecte_returns_2(self, spark: SparkSession) -> None:
+    def test_influence_indirecte_returns_3(self, spark: SparkSession) -> None:
         df = spark.createDataFrame([Row(country="NGA")])
         result = df.select(_country_class_expr("country").alias("cls")).first()
-        assert result["cls"] == 2
+        assert result["cls"] == 3
 
     def test_unknown_country_returns_1(self, spark: SparkSession) -> None:
         df = spark.createDataFrame([Row(country="XYZ")])
@@ -154,7 +154,7 @@ class TestAddGeoScores:
         assert "geo_B" in cols
         assert "geo_S" in cols
         assert "geo_score_raw" in cols
-        assert "dominant_country" in cols
+        assert "actor_countries" in cols
 
     def test_geo_scores_are_positive(self, spark: SparkSession) -> None:
         row = _make_gdelt_row()
@@ -171,12 +171,12 @@ class TestAddGeoScores:
         assert result["geo_S"] > 0
         assert result["geo_score_raw"] > 0
 
-    def test_dominant_country_is_highest_class(self, spark: SparkSession) -> None:
-        # USA=4, RUS=4, IRQ=3 → Actor1 (USA) car égalité et Actor1 prioritaire
+    def test_actor_countries_contains_all_unique(self, spark: SparkSession) -> None:
+        # USA (A1), RUS (A2), IZ→IRQ (ActionGeo) → ["IRQ", "USA", "RUS"] (dédupliqué)
         row = _make_gdelt_row(
             Actor1CountryCode="USA",
             Actor2CountryCode="RUS",
-            ActionGeo_CountryCode="IRQ",
+            ActionGeo_CountryCode="IZ",
         )
         df = spark.createDataFrame([row])
         df = (
@@ -186,7 +186,8 @@ class TestAddGeoScores:
             .withColumn("AvgTone", F.col("AvgTone").cast("double"))
         )
         result = _add_geo_scores(df).first()
-        assert result["dominant_country"] == "USA"
+        countries = sorted(result["actor_countries"])
+        assert countries == ["IRQ", "RUS", "USA"]
 
 
 # ──────────────────────────────────────────────
@@ -229,7 +230,7 @@ class TestCleanDataframe:
         df = spark.createDataFrame(rows)
         result = _clean_dataframe(df)
         cols = result.columns
-        for c in ["geo_I", "geo_B", "geo_S", "geo_score_raw", "dominant_country"]:
+        for c in ["geo_I", "geo_B", "geo_S", "geo_score_raw", "actor_countries"]:
             assert c in cols, f"Colonne {c} manquante"
 
     def test_dateadded_parsed_as_timestamp(self, spark: SparkSession) -> None:
@@ -239,3 +240,139 @@ class TestCleanDataframe:
         row = result.first()
         assert row["DATEADDED"] is not None
         assert str(row["DATEADDED"]).startswith("2026-02-27")
+
+
+# ──────────────────────────────────────────────
+# _write_parquet (local)
+# ──────────────────────────────────────────────
+
+
+class TestWriteParquet:
+    def test_writes_parquet_to_local_path(self, spark: SparkSession, tmp_path) -> None:
+        from src.transformation.clean_gdelt import _write_parquet
+        df = spark.createDataFrame([Row(x=1, y="a"), Row(x=2, y="b")])
+        out = str(tmp_path / "test_out.parquet")
+        _write_parquet(df, out)
+        result = spark.read.parquet(out)
+        assert result.count() == 2
+
+
+# ──────────────────────────────────────────────
+# format_history / format_daily — mocked I/O
+# ──────────────────────────────────────────────
+
+from unittest.mock import patch, MagicMock
+
+
+class TestFormatHistory:
+    @patch("boto3.client")
+    @patch("src.transformation.clean_gdelt._get_spark")
+    def test_returns_early_when_no_folders(self, mock_spark, mock_boto3_client) -> None:
+        from src.transformation.clean_gdelt import format_history
+        # Set up paginator to return no CommonPrefixes
+        mock_client = MagicMock()
+        mock_boto3_client.return_value = mock_client
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{"CommonPrefixes": []}]
+
+        format_history()
+        # _get_spark should not be called if no folders
+        mock_spark.assert_not_called()
+
+    @patch("boto3.client")
+    @patch("src.transformation.clean_gdelt._get_spark")
+    def test_processes_batches(self, mock_spark, mock_boto3_client) -> None:
+        from src.transformation.clean_gdelt import format_history
+        # 2 date folders
+        mock_client = MagicMock()
+        mock_boto3_client.return_value = mock_client
+        mock_paginator = MagicMock()
+        mock_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [{
+            "CommonPrefixes": [
+                {"Prefix": "raw/gdelt/history/2026-01-04/"},
+                {"Prefix": "raw/gdelt/history/2026-01-05/"},
+            ]
+        }]
+
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_df = MagicMock()
+        mock_session.read.option.return_value = mock_session.read
+        mock_session.read.parquet.return_value = mock_df
+        mock_df.select.return_value = mock_df
+        mock_df.withColumn.return_value = mock_df
+        mock_df.dropDuplicates.return_value = mock_df
+        mock_df.filter.return_value = mock_df
+        mock_df.orderBy.return_value = mock_df
+        mock_df.write.mode.return_value = mock_df
+        mock_df.parquet = MagicMock()
+        mock_session.catalog.clearCache = MagicMock()
+        mock_session.read.parquet.return_value = mock_df
+        mock_df.count.return_value = 100
+
+        format_history()
+        assert mock_spark.call_count >= 1
+
+
+class TestFormatDaily:
+    @patch("src.transformation.clean_gdelt._write_parquet")
+    @patch("src.transformation.clean_gdelt._clean_dataframe")
+    @patch("src.transformation.clean_gdelt._get_spark")
+    def test_stops_when_no_existing_parquet(self, mock_spark, mock_clean, mock_write) -> None:
+        from src.transformation.clean_gdelt import format_daily
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_session.read.parquet.side_effect = Exception("not found")
+
+        format_daily("2026-02-27")
+        mock_session.stop.assert_called_once()
+        mock_clean.assert_not_called()
+
+    @patch("src.transformation.clean_gdelt._write_parquet")
+    @patch("src.transformation.clean_gdelt._clean_dataframe")
+    @patch("src.transformation.clean_gdelt._get_spark")
+    def test_stops_when_no_daily_files(self, mock_spark, mock_clean, mock_write) -> None:
+        from src.transformation.clean_gdelt import format_daily
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_existing = MagicMock()
+        mock_session.read.parquet.side_effect = [mock_existing, Exception("no daily")]
+
+        format_daily("2026-02-27")
+        mock_session.stop.assert_called_once()
+        mock_clean.assert_not_called()
+
+    @patch("src.transformation.clean_gdelt._write_parquet")
+    @patch("src.transformation.clean_gdelt._clean_dataframe")
+    @patch("src.transformation.clean_gdelt._get_spark")
+    def test_merges_and_writes(self, mock_spark, mock_clean, mock_write) -> None:
+        from src.transformation.clean_gdelt import format_daily
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_existing = MagicMock()
+        mock_new = MagicMock()
+        mock_session.read.parquet.side_effect = [mock_existing, mock_new]
+
+        # _clean_dataframe is called on df_new only
+        mock_cleaned_new = MagicMock()
+        mock_clean.return_value = mock_cleaned_new
+
+        # unionByName is called on df_existing with cleaned new data
+        mock_merged = MagicMock()
+        mock_existing.unionByName.return_value = mock_merged
+        mock_deduped = MagicMock()
+        mock_merged.dropDuplicates.return_value = mock_deduped
+        mock_ordered = MagicMock()
+        mock_deduped.orderBy.return_value = mock_ordered
+
+        # agg().collect()[0] returns a Row-like tuple
+        mock_agg_result = MagicMock()
+        mock_agg_result.__getitem__ = MagicMock(side_effect=lambda i: ["2026-01-01", "2026-02-27"][i])
+        mock_agg_result.__iter__ = MagicMock(return_value=iter(["2026-01-01", "2026-02-27"]))
+        mock_ordered.agg.return_value.collect.return_value = [mock_agg_result]
+
+        format_daily("2026-02-27")
+        mock_write.assert_called_once()
+        mock_session.stop.assert_called_once()

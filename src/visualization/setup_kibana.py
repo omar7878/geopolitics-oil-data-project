@@ -11,7 +11,7 @@ Ce script crée :
      - Stress Index (score_pct_7d) en ligne temporelle
      - Volume de trading en barres
      - Scores géopolitiques smoothed (geo_I / geo_B / geo_S) superposés
-     - Top acteurs géopolitiques (period_main_actor) en donut
+     - Top acteurs géopolitiques (period_actor_countries) en donut
   3. Un dashboard qui assemble les cinq panneaux
 
 Usage :
@@ -117,6 +117,7 @@ def _create_lens_xy(
     y_fields: list[str],
     y_label: str = "Value",
     series_type: str = "line",
+    interval: str = "15m",
 ) -> None:
     """Crée une visualisation Lens XY (ligne ou barres) via l'API CRUD."""
     layer_id = "layer-main"
@@ -130,7 +131,7 @@ def _create_lens_xy(
         "isBucketed": True,
         "label": "timestamp",
         "operationType": "date_histogram",
-        "params": {"interval": "auto", "includeEmptyRows": True},
+        "params": {"interval": interval, "includeEmptyRows": True},
         "scale": "interval",
         "sourceField": "timestamp",
     }
@@ -215,7 +216,7 @@ def _create_lens_dual_axis(
             "isBucketed": True,
             "label": "timestamp",
             "operationType": "date_histogram",
-            "params": {"interval": "auto", "includeEmptyRows": True},
+            "params": {"interval": "15m", "includeEmptyRows": True},
             "scale": "interval",
             "sourceField": "timestamp",
         },
@@ -286,13 +287,8 @@ def _create_lens_dual_axis(
             }])
 
 
-def _create_lens_donut(vis_id: str, title: str, field: str) -> None:
-    """Crée une visualisation Lens horizontal bar (top acteurs par count).
-
-    Remplace un donut Pie (format lnsPie instable via l'API) par un bar chart
-    horizontal Lens XY qui affiche les mêmes données : top N valeurs du champ
-    keyword triées par nombre d'occurrences.
-    """
+def _create_lens_bar_horizontal(vis_id: str, title: str, field: str, size: int = 10) -> None:
+    """Crée une visualisation Lens en barres horizontales (top N par count)."""
     layer_id = "layer-bar"
     x_col = "col-terms"
     y_col = "col-count"
@@ -331,7 +327,7 @@ def _create_lens_donut(vis_id: str, title: str, field: str) -> None:
                                 "params": {
                                     "orderBy": {"columnId": y_col, "type": "column"},
                                     "orderDirection": "desc",
-                                    "size": 10,
+                                    "size": size,
                                 },
                                 "scale": "ordinal",
                                 "sourceField": field,
@@ -363,28 +359,139 @@ def _create_lens_donut(vis_id: str, title: str, field: str) -> None:
 
 
 # ──────────────────────────────────────────────
+# 2b. MAP CHOROPLETH
+# ──────────────────────────────────────────────
+
+
+def _create_map_actors(map_id: str, title: str) -> None:
+    """Crée une carte monde choropleth (Kibana Maps) colorée par nombre
+    d'apparitions de chaque pays en tant que period_actor_country.
+
+    Plus un pays est fréquemment l'acteur dominant, plus il est rouge.
+    """
+    join_right_id = "join-right-actors"
+
+    layer_list = [
+        # ── Fond de carte EMS ──
+        {
+            "id": "layer-basemap",
+            "label": "Road map",
+            "type": "EMS_VECTOR_TILE",
+            "visible": True,
+            "sourceDescriptor": {"type": "EMS_TMS", "isAutoSelect": True},
+            "alpha": 1,
+            "minZoom": 0,
+            "maxZoom": 24,
+        },
+        # ── Couche choropleth : pays colorés par count ──
+        {
+            "id": "layer-choropleth",
+            "label": title,
+            "type": "GEOJSON_VECTOR",
+            "visible": True,
+            "minZoom": 0,
+            "maxZoom": 24,
+            "alpha": 0.75,
+            "sourceDescriptor": {
+                "type": "EMS_FILE",
+                "id": "world_countries",
+                "tooltipProperties": ["name", "iso3"],
+            },
+            "joins": [
+                {
+                    "leftField": "iso3",
+                    "right": {
+                        "type": "ES_TERM_SOURCE",
+                        "id": join_right_id,
+                        "indexPatternId": DATA_VIEW_ID,
+                        "term": "period_actor_country",
+                        "metrics": [{"type": "count"}],
+                        "applyGlobalQuery": True,
+                        "applyGlobalTime": True,
+                    },
+                }
+            ],
+            "style": {
+                "type": "VECTOR",
+                "properties": {
+                    "fillColor": {
+                        "type": "DYNAMIC",
+                        "options": {
+                            "field": {
+                                "name": f"__kbnjoin__count__{join_right_id}",
+                                "origin": "join",
+                            },
+                            "color": "Reds",
+                            "type": "ORDINAL",
+                            "fieldMetaOptions": {"isEnabled": True, "sigma": 3},
+                        },
+                    },
+                    "lineColor": {
+                        "type": "STATIC",
+                        "options": {"color": "#444444"},
+                    },
+                    "lineWidth": {
+                        "type": "STATIC",
+                        "options": {"size": 0.5},
+                    },
+                },
+            },
+        },
+    ]
+
+    map_state = {
+        "zoom": 1.8,
+        "center": {"lat": 25.0, "lon": 40.0},
+        "timeFilters": {"from": "now-90d", "to": "now"},
+        "refreshConfig": {"isPaused": True, "interval": 0},
+        "query": {"language": "kuery", "query": ""},
+        "filters": [],
+    }
+
+    attributes = {
+        "title": title,
+        "mapStateJSON": json.dumps(map_state),
+        "layerListJSON": json.dumps(layer_list),
+        "uiStateJSON": "{}",
+    }
+
+    _upsert("map", map_id, attributes,
+            references=[{
+                "id": DATA_VIEW_ID,
+                "name": f"layer-choropleth-join-{join_right_id}",
+                "type": "index-pattern",
+            }])
+
+
+# ──────────────────────────────────────────────
 # 3. DASHBOARD
 # ──────────────────────────────────────────────
 
 # Kibana grid : 48 colonnes, hauteur en unités (~20 px)
 PANEL_DEFS = [
-    {"vis_id": "vis-wti-close",    "grid": {"x": 0,  "y": 0,  "w": 24, "h": 15, "i": "p1"}},
-    {"vis_id": "vis-stress-index", "grid": {"x": 24, "y": 0,  "w": 24, "h": 15, "i": "p2"}},
-    {"vis_id": "vis-price-vs-stress", "grid": {"x": 0, "y": 15, "w": 48, "h": 15, "i": "p6"}},
-    {"vis_id": "vis-volume",       "grid": {"x": 0,  "y": 30, "w": 24, "h": 12, "i": "p3"}},
-    {"vis_id": "vis-geo-scores",   "grid": {"x": 24, "y": 30, "w": 24, "h": 12, "i": "p4"}},
-    {"vis_id": "vis-top-actors",   "grid": {"x": 0,  "y": 42, "w": 48, "h": 15, "i": "p5"}},
+    # Ligne 1 — Prix du pétrole (pleine largeur)
+    {"vis_id": "vis-wti-close",      "type": "lens", "grid": {"x": 0,  "y": 0,  "w": 48, "h": 15, "i": "p1"}},
+    # Ligne 2 — Volume de trading (pleine largeur)
+    {"vis_id": "vis-volume",          "type": "lens", "grid": {"x": 0,  "y": 15, "w": 48, "h": 12, "i": "p3"}},
+    # Ligne 3 — Variation WTI vs Score Global (pleine largeur)
+    {"vis_id": "vis-price-vs-stress", "type": "lens", "grid": {"x": 0,  "y": 27, "w": 48, "h": 15, "i": "p6"}},
+    # Ligne 4 — Scores géopolitiques I/B/S (pleine largeur)
+    {"vis_id": "vis-geo-scores",      "type": "lens", "grid": {"x": 0,  "y": 42, "w": 48, "h": 12, "i": "p4"}},
+    # Ligne 5 — Top acteurs + Carte
+    {"vis_id": "vis-top-actors",      "type": "lens", "grid": {"x": 0,  "y": 54, "w": 24, "h": 15, "i": "p5"}},
+    {"vis_id": "map-actors",          "type": "map",  "grid": {"x": 24, "y": 54, "w": 24, "h": 15, "i": "p7"}},
 ]
 
 
 def _create_dashboard() -> None:
-    """Crée le dashboard avec les 5 panneaux."""
+    """Crée le dashboard avec les 6 panneaux (Lens + Maps)."""
     panels = []
     references = []
     for pdef in PANEL_DEFS:
+        panel_type = pdef.get("type", "lens")
         panels.append({
             "version": "8.10.2",
-            "type": "lens",
+            "type": panel_type,
             "gridData": pdef["grid"],
             "panelIndex": pdef["grid"]["i"],
             "embeddableConfig": {"enhancements": {}},
@@ -393,7 +500,7 @@ def _create_dashboard() -> None:
         references.append({
             "id": pdef["vis_id"],
             "name": f"panel_{pdef['vis_id']}",
-            "type": "lens",
+            "type": panel_type,
         })
 
     attributes = {
@@ -423,22 +530,37 @@ def main() -> None:
     """Point d'entrée : Data View → Visualisations → Dashboard."""
     log.info("── Kibana Dashboard Setup ──")
 
+    # 0. Nettoyage des anciens objets obsolètes (types changés)
+    stale = [
+        ("visualization", "vis-top-actors"),   # était Vega, maintenant Lens
+        ("lens",          "vis-top-actors"),    # ancienne version Lens
+        ("lens",          "vis-stress-index"),  # supprimé du dashboard
+    ]
+    for obj_type, obj_id in stale:
+        url = f"{KIBANA_URL}/api/saved_objects/{obj_type}/{obj_id}"
+        try:
+            resp = requests.delete(url, headers=HEADERS, timeout=10)
+            if resp.status_code in (200, 204):
+                log.info("   🗑  ancien %s/%s supprimé", obj_type, obj_id)
+        except Exception:
+            pass  # pas grave si l'objet n'existait pas
+
     # 1. Data View
     _create_data_view()
 
     # 2. Visualisations
     log.info("Création des visualisations Lens …")
     _create_lens_xy("vis-wti-close",    "WTI — Cours (Close)",             ["Close"],                                                "USD/bbl")
-    _create_lens_xy("vis-stress-index", "Stress Index (score_pct_7d)",     ["score_pct_7d"],                                         "Percentile 7j")
-    _create_lens_xy("vis-volume",       "Volume de trading",               ["Volume"],              "Contrats",     "bar_stacked")
+    _create_lens_xy("vis-volume",       "Volume de trading",               ["Volume"],              "Contrats",     "bar_stacked", interval="auto")
     _create_lens_xy("vis-geo-scores",   "Scores géopolitiques (smoothed)", ["geo_I_smoothed", "geo_B_smoothed", "geo_S_smoothed"],    "Score")
     _create_lens_dual_axis(
         "vis-price-vs-stress",
-        "Prix WTI vs Stress Index (double échelle)",
-        left_field="Close", right_field="score_pct_7d",
-        left_label="USD/bbl", right_label="Percentile 7j",
+        "Variation WTI (%) vs Score Global (double échelle)",
+        left_field="Variation_Pct", right_field="geo_score_raw_smoothed",
+        left_label="Variation (%)", right_label="Score Global",
     )
-    _create_lens_donut("vis-top-actors", "Top acteurs géopolitiques",      "period_main_actor")
+    _create_lens_bar_horizontal("vis-top-actors", "Top acteurs géopolitiques", "period_actor_country")
+    _create_map_actors("map-actors", "Carte — Acteurs géopolitiques")
 
     # 3. Dashboard
     log.info("Création du dashboard …")

@@ -19,7 +19,7 @@
       "geo_score_raw_sum":      {"type": "float"},
       "total_event_count":      {"type": "float"},
       "gap_duration_15m":       {"type": "integer"},
-      "period_main_actor":      {"type": "keyword"},
+      "period_actor_country":       {"type": "keyword"},
       "score_pct_7d":           {"type": "float"}
     }
   },
