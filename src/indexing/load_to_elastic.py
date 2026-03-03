@@ -18,7 +18,7 @@ Schéma Parquet Gold (20 colonnes) :
   Volatility_Range, Variation_Pct,
   geo_I_smoothed, geo_B_smoothed, geo_S_smoothed, geo_score_raw_smoothed,
   geo_I_sum, geo_B_sum, geo_S_sum, geo_score_raw_sum,
-  total_event_count, gap_duration_15m, period_main_actor, score_pct_7d
+  total_event_count, gap_duration_15m, period_actor_country, score_pct_7d
 
 Usage :
   poetry run python -m src.indexing.load_to_elastic
@@ -80,7 +80,7 @@ COLUMNS = [
     "geo_I_smoothed", "geo_B_smoothed", "geo_S_smoothed", "geo_score_raw_smoothed",
     "geo_I_sum", "geo_B_sum", "geo_S_sum", "geo_score_raw_sum",
     "total_event_count", "gap_duration_15m",
-    "period_main_actor",
+    "period_actor_country",
     "score_pct_7d",
 ]
 
@@ -131,7 +131,7 @@ ES_MAPPING: dict[str, Any] = {
             # ── Métriques GDELT ────────────────────────────────────────────
             "total_event_count":      {"type": "float"},
             "gap_duration_15m":       {"type": "integer"},
-            "period_main_actor":      {"type": "keyword"},
+            "period_actor_country":       {"type": "keyword"},
             # ── Oil Stress Index ───────────────────────────────────────────
             "score_pct_7d":           {"type": "float"},
         }

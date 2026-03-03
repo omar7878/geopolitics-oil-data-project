@@ -42,6 +42,7 @@ Usage :
 
 import logging
 import argparse
+import os
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, LongType, TimestampType
@@ -51,7 +52,7 @@ from pyspark.sql.window import Window
 # CONFIGURATION
 # ──────────────────────────────────────────────
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 RAW_HISTORY_PATH = f"s3a://{BUCKET_NAME}/raw/yahoofinance/history/"
@@ -241,11 +242,21 @@ def format_daily(target_date: str) -> None:
 
     logger.info("Nouvelles lignes brutes : %d", df_new.count())
 
-    df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
-    logger.info("Total avant dédoublonnage : %d lignes", df_merged.count())
+    # Nettoyer UNIQUEMENT les nouvelles données (les existantes sont déjà clean).
+    df_new_clean = _clean_dataframe(df_new)
 
-    df_merged = _clean_dataframe(df_merged)
-    logger.info("Total après dédoublonnage : %d lignes", df_merged.count())
+    # Union + dédoublonnage
+    df_merged = df_existing.unionByName(df_new_clean, allowMissingColumns=False)
+
+    # Dédoublonnage sur Datetime (garde la première occurrence)
+    window_dedup = Window.partitionBy("Datetime").orderBy(F.monotonically_increasing_id())
+    df_merged = (
+        df_merged
+        .withColumn("_row_num", F.row_number().over(window_dedup))
+        .filter(F.col("_row_num") == 1)
+        .drop("_row_num")
+        .orderBy("Datetime")
+    )
 
     dt_min = df_merged.agg(F.min("Datetime")).collect()[0][0]
     dt_max = df_merged.agg(F.max("Datetime")).collect()[0][0]

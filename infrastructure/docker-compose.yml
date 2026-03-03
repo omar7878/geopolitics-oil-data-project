@@ -104,12 +104,16 @@ services:
   # 4. L'ORCHESTRATION (Apache Airflow)
   # ==========================================
   airflow:
-    image: apache/airflow:2.7.2
+    build:
+      context: .
+      dockerfile: airflow.Dockerfile
     container_name: airflow_webserver
     depends_on:
       postgres:
         condition: service_healthy
       localstack:
+        condition: service_healthy
+      elasticsearch:
         condition: service_healthy
       # kafka:                      # ⏸️ PHASE 2 — à réactiver avec Kafka
       #   condition: service_healthy
@@ -122,6 +126,9 @@ services:
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=eu-west-1
       - AWS_ENDPOINT_URL=http://localstack:4566
+      # Elasticsearch & Kibana (noms Docker internes)
+      - ES_HOST=http://elasticsearch:9200
+      - KIBANA_URL=http://kibana:5601
     volumes:
       - ../dags:/opt/airflow/dags
       - ../src:/opt/airflow/src
@@ -130,7 +137,6 @@ services:
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
-        pip install --quiet awscli awscli-local
         airflow db init
         airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true
         airflow webserver &

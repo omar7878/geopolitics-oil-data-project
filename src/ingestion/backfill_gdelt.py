@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timezone
 
 # --- Configuration ---
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 MASTER_FILE_LIST_URL = "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt"
 

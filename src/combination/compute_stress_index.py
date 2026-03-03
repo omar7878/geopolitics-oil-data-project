@@ -17,7 +17,7 @@ Logique métier :
 
 Pipeline (5 étapes PySpark) :
   1. Agrégation GDELT par tranche de 15 min
-     → somme des scores, main_actor du pire événement
+     → somme des scores, actor_countries du pire événement
   2. Full outer join WTI × GDELT sur le timestamp 15 min
      → master_datetime, market_open (0/1)
   3. Forward mapping (fermeture → prochaine réouverture)
@@ -34,6 +34,7 @@ Usage :
 
 import argparse
 import logging
+import os
 from datetime import datetime, timedelta
 
 from pyspark.sql import SparkSession, DataFrame
@@ -44,7 +45,7 @@ from pyspark.sql.window import Window
 # CONFIGURATION
 # ──────────────────────────────────────────────
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 WTI_FORMATTED_PATH   = f"s3a://{BUCKET_NAME}/formatted/yahoofinance/wti.parquet"
@@ -149,31 +150,30 @@ def _aggregate_gdelt_15min(df_gdelt: DataFrame) -> DataFrame:
     """
     GroupBy DATEADDED (déjà arrondi à 15 min côté Silver) :
       - Somme des 4 scores (geo_I, geo_B, geo_S, geo_score_raw)
-      - main_actor = dominant_country lié au geo_score_raw le plus élevé
-        via max(struct(geo_score_raw, dominant_country))
+      - actor_countries = tableau dédupliqué ISO3 de l'événement
+        avec le geo_score_raw le plus élevé de la tranche
       - event_count = nombre d'événements dans la tranche
     """
     logger.info("Étape 1 : Agrégation GDELT par tranche de 15 min")
 
-    # ── Agrégation : somme des scores + struct trick pour main_actor ──
-    # dominant_country (calculé dans clean_gdelt.py) capture le pays avec
-    # la classe la plus élevée parmi Actor1, Actor2 et ActionGeo.
+    # ── Agrégation : somme des scores + struct trick pour actor_countries ──
+    # actor_countries (calculé dans clean_gdelt.py) = array ISO3 des pays
+    # impliqués dans l'événement (dédupliqué, sans null).
     agg_exprs = [F.sum(c).alias(c) for c in SCORE_COLS] + [
         F.count("*").alias("event_count"),
-        # max(struct(score, dominant_country)) → pays du pire événement de la tranche
-        # Le tri se fait d'abord sur geo_score_raw DESC, puis sur dominant_country
+        # max(struct(score, actor_countries)) → pays du pire événement de la tranche
         F.max(F.struct(
             F.col("geo_score_raw"),
-            F.col("dominant_country"),
+            F.col("actor_countries"),
         )).alias("_best_actor_struct"),
     ]
 
     df_agg = df_gdelt.groupBy("DATEADDED").agg(*agg_exprs)
 
-    # ── Extraire le pays depuis le struct ──
+    # ── Extraire les pays depuis le struct ──
     df_agg = (
         df_agg
-        .withColumn("main_actor", F.col("_best_actor_struct.dominant_country"))
+        .withColumn("actor_countries", F.col("_best_actor_struct.actor_countries"))
         .drop("_best_actor_struct")
     )
 
@@ -222,8 +222,8 @@ def _full_join_wti_gdelt(df_wti: DataFrame, df_gdelt_agg: DataFrame) -> DataFram
         df = df.withColumn(c, F.coalesce(F.col(c), F.lit(0.0)))
 
     df = df.withColumn(
-        "main_actor",
-        F.coalesce(F.col("main_actor"), F.lit("NONE")),
+        "actor_countries",
+        F.coalesce(F.col("actor_countries"), F.array().cast("array<string>")),
     )
 
     open_count = df.filter(F.col("market_open") == 1).count()
@@ -284,16 +284,16 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
     """
     GroupBy target_open_datetime :
       - gap_duration_15m  = nombre de quarts d'heure accumulés
-      - {score}_smoothed  = 0.8 × max(score) + 0.2 × mean(score)
-        → Hybride : le pic de stress domine (80%), la moyenne contextualise (20%)
+      - {score}_smoothed  = 0.25 × max(score) + 0.75 × mean(score)
+        → Hybride : le pic de stress domine (25%), la moyenne contextualise (75%)
         → Évite la sous-estimation des weekends due au lissage linéaire
       - {score}_sum       = somme brute (pour le modèle ML)
       - total_event_count = somme du nombre d'événements
-      - period_main_actor = dominant_country du pire événement
+      - period_actor_countries = actor_countries du pire événement
     """
-    logger.info("Étape 4 : Lissage hybride (0.8×max + 0.2×mean) sur les périodes de fermeture")
+    logger.info("Étape 4 : Lissage hybride (0.25×max + 0.75×mean) sur les périodes de fermeture")
 
-    ALPHA = 0.8   # poids du pic (max)
+    ALPHA = 0.25  # poids du pic (max)
 
     # ── Agrégation par target_open_datetime ──
     agg_exprs = [
@@ -301,7 +301,7 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
         F.sum("event_count").alias("total_event_count"),
         F.max(F.struct(
             F.col("geo_score_raw"),
-            F.col("main_actor"),
+            F.col("actor_countries"),
         )).alias("_best_period_actor"),
     ]
     for c in SCORE_COLS:
@@ -318,10 +318,10 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
             F.round(F.lit(ALPHA) * F.col(f"{c}_max") + F.lit(1 - ALPHA) * mean_col, 6),
         )
 
-    # ── Extraire le period_main_actor ──
+    # ── Extraire le period_actor_countries ──
     df_smoothed = (
         df_smoothed
-        .withColumn("period_main_actor", F.col("_best_period_actor.main_actor"))
+        .withColumn("period_actor_countries", F.col("_best_period_actor.actor_countries"))
         .drop("_best_period_actor")
     )
 
@@ -406,20 +406,31 @@ def _final_join_and_percentile(df_wti: DataFrame, df_smoothed: DataFrame) -> Dat
         F.col("geo_S_smoothed"),
         F.col("geo_score_raw_smoothed"),
 
-        # GDELT brut (sommes + max par période de fermeture)
+        # GDELT brut (sommes accumulées + max pour calibration ALPHA)
         F.col("geo_I_sum"),
         F.col("geo_B_sum"),
         F.col("geo_S_sum"),
         F.col("geo_score_raw_sum"),
-        F.col("geo_score_raw_max"),   # pic de stress (pour calibration ALPHA en notebook)
+        F.col("geo_score_raw_max"),
 
         # Métadonnées
         F.col("total_event_count"),
         F.col("gap_duration_15m"),
-        F.col("period_main_actor"),
+        F.col("period_actor_countries"),
 
         # Percentile
         F.col("score_pct_7d"),
+    )
+
+    # ── Explode actor_countries : 1 ligne par pays ───────────────
+    # explode_outer garde les lignes dont l'array est vide (→ null).
+    # Les métriques utilisent des moyennes dans Kibana, donc
+    # les lignes dupliquées n'affectent pas les aggrégations.
+    df_gold = (
+        df_gold
+        .withColumn("period_actor_country",
+                     F.explode_outer(F.col("period_actor_countries")))
+        .drop("period_actor_countries")
     )
 
     # ── Tri chronologique ──

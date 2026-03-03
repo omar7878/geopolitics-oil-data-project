@@ -28,7 +28,7 @@ import requests
 # CONFIGURATION
 # ==============================================================================
 
-S3_ENDPOINT  = "http://localhost:4566"
+S3_ENDPOINT  = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME  = "datalake"
 GDELT_BASE_URL = "http://data.gdeltproject.org/gdeltv2"
 

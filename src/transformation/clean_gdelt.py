@@ -38,6 +38,7 @@ Usage :
 
 import logging
 import argparse
+import os
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -52,7 +53,7 @@ from pyspark.sql.window import Window
 # CONFIGURATION
 # ──────────────────────────────────────────────
 
-S3_ENDPOINT = "http://localhost:4566"
+S3_ENDPOINT = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
 BUCKET_NAME = "datalake"
 
 RAW_HISTORY_PATH = f"s3a://{BUCKET_NAME}/raw/gdelt/history/"
@@ -87,7 +88,7 @@ KEEP_COLS = [
     "Actor2CountryCode",
     "Actor2Type1Code",
 
-    # ActionGeo_CountryCode est conservé pour le calcul du dominant_country
+    # ActionGeo_CountryCode est conservé pour le calcul de actor_countries
     # (il est déjà présent plus bas, on s'assure de ne pas le dupliquer)
 
     "EventCode",
@@ -157,27 +158,63 @@ def _get_spark() -> SparkSession:
 # __________________ SCORE GEO (RAW) __________________
 # ──────────────────────────────────────────────
 
+
+# ── Poids ISO 3 lettres (Actor1CountryCode, Actor2CountryCode) ──
+COUNTRY_WEIGHTS_ISO3 = {
+    # Classe 3 — Les Maîtres du Robinet (Price Makers & Menaces immédiates)
+    "SAU": 6, "RUS": 6, "IRN": 6, "IRQ": 6,
+
+    # Classe 2 — Piliers de l'Offre & Risques de Rupture (Supply Risk)
+    "USA": 4, "ARE": 3, "KWT": 3, "CAN": 3, "NOR": 3, "KAZ": 3, "BRA": 3,
+    "VEN": 3, "LBY": 3, "NGA": 3, "AGO": 3,
+
+    # Classe 1 — Acheteurs Majeurs & Verrous Logistiques (Demand & Transit)
+    "CHN": 2, "IND": 2, "MEX": 2, "EGY": 2, "TUR": 2, "PAN": 2, "YEM": 2,
+    "JPN": 2, "KOR": 2, "DEU": 2, "FRA": 2, "GBR": 2,
+}
+
+# ── Poids FIPS 2 lettres (ActionGeo_CountryCode) ──────────────
+# GDELT utilise FIPS 10-4 pour ActionGeo, pas ISO.
+# Mapping : https://en.wikipedia.org/wiki/List_of_FIPS_country_codes
+COUNTRY_WEIGHTS_FIPS2 = {
+    # Classe 3
+    "SA": 6, "RS": 6, "IR": 6, "IZ": 6,
+
+    # Classe 2
+    "US": 4, "AE": 3, "KU": 3, "CA": 3, "NO": 3, "KZ": 3, "BR": 3,
+    "VE": 3, "LY": 3, "NI": 3, "AO": 3,
+
+    # Classe 1
+    "CH": 2, "IN": 2, "MX": 2, "EG": 2, "TU": 2, "PM": 2, "YM": 2,
+    "JA": 2, "KS": 2, "GM": 2, "FR": 2, "UK": 2,
+}
+
+# ── Conversion FIPS 2 lettres → ISO 3 lettres ─────────────────
+# Permet de normaliser actor_countries en ISO3 quel que soit
+# le champ source (Actor*CountryCode = ISO3, ActionGeo = FIPS2).
+FIPS2_TO_ISO3 = {
+    # Classe 3
+    "SA": "SAU", "RS": "RUS", "IR": "IRN", "IZ": "IRQ",
+    # Classe 2
+    "US": "USA", "AE": "ARE", "KU": "KWT", "CA": "CAN", "NO": "NOR",
+    "KZ": "KAZ", "BR": "BRA", "VE": "VEN", "LY": "LBY", "NI": "NGA",
+    "AO": "AGO",
+    # Classe 1
+    "CH": "CHN", "IN": "IND", "MX": "MEX", "EG": "EGY", "TU": "TUR",
+    "PM": "PAN", "YM": "YEM", "JA": "JPN", "KS": "KOR", "GM": "DEU",
+    "FR": "FRA", "UK": "GBR",
+}
+
+
 def _country_class_expr(colname: str) -> F.Column:
     """
-    Map pays -> classe (1..4) selon ta taxonomie.
+    Map pays -> classe (1..3) selon ta taxonomie.
     Tout pays absent => 1.
+    Utilise le dictionnaire FIPS 2 lettres pour ActionGeo_CountryCode,
+    et ISO 3 lettres pour Actor1/Actor2CountryCode.
     """
-    country_weights = {
-        # Classe 4 — Game Changers
-        "USA": 4, "SAU": 4, "RUS": 4, "CHN": 4,
-
-        # Classe 3 — Piliers Offre & Hubs / Verrous
-        "IRN": 3, "IRQ": 3, "KWT": 3, "ARE": 3, "QAT": 3,
-        "CAN": 3, "BRA": 3, "NOR": 3, "MEX": 3, "KAZ": 3,
-        "EGY": 3, "TUR": 3, "PAN": 3, "YEM": 3,
-
-        # Classe 2 — Influence indirecte / instables / diplomatie
-        "VEN": 2, "NGA": 2, "LBY": 2, "AGO": 2,
-        "FRA": 2, "GBR": 2, "DEU": 2, "JPN": 2,
-        "IND": 2, "ISR": 2, "KOR": 2,
-    }
-
-    mapping = F.create_map([F.lit(x) for kv in country_weights.items() for x in kv])
+    weights = COUNTRY_WEIGHTS_FIPS2 if colname == "ActionGeo_CountryCode" else COUNTRY_WEIGHTS_ISO3
+    mapping = F.create_map([F.lit(x) for kv in weights.items() for x in kv])
     return F.coalesce(mapping.getItem(F.col(colname)), F.lit(1)).cast(IntegerType())
 
 
@@ -228,18 +265,25 @@ def _add_geo_scores(df: DataFrame) -> DataFrame:
     # Score raw = I^2 * B * S
     score_raw = (I * I) * B * S
 
-    # dominant_country = le pays avec la classe la plus élevée parmi les 3
-    # En cas d'égalité : Actor1 > Actor2 > ActionGeo (priorité à l'initiateur)
-    dominant_country = (
-        F.when(
-            (F.col("geo_C1") >= F.col("geo_C2")) & (F.col("geo_C1") >= F.col("geo_C3")),
-            F.col("Actor1CountryCode")
-        ).when(
-            F.col("geo_C2") >= F.col("geo_C3"),
-            F.col("Actor2CountryCode")
-        ).otherwise(
-            F.col("ActionGeo_CountryCode")
-        )
+    # actor_countries = ensemble dédupliqué des pays impliqués,
+    # normalisés en ISO 3 lettres.
+    # Sources : ActionGeo_CountryCode (FIPS2→ISO3), Actor1/Actor2CountryCode
+    #           (déjà ISO3, mais on tente le mapping FIPS2 au cas où).
+    # Les None/null sont exclus ; les doublons aussi.
+    fips2_map = F.create_map([F.lit(x) for kv in FIPS2_TO_ISO3.items() for x in kv])
+    action_geo_iso3 = fips2_map.getItem(F.col("ActionGeo_CountryCode"))
+    actor1_iso3 = F.coalesce(
+        fips2_map.getItem(F.col("Actor1CountryCode")),
+        F.col("Actor1CountryCode"),
+    )
+    actor2_iso3 = F.coalesce(
+        fips2_map.getItem(F.col("Actor2CountryCode")),
+        F.col("Actor2CountryCode"),
+    )
+
+    # array_distinct(array(…)) déduplique ; array_compact enlève les null
+    actor_countries = F.array_distinct(
+        F.array_compact(F.array(action_geo_iso3, actor1_iso3, actor2_iso3))
     )
 
     df = (
@@ -248,7 +292,7 @@ def _add_geo_scores(df: DataFrame) -> DataFrame:
         .withColumn("geo_B", B.cast(DoubleType()))
         .withColumn("geo_S", S.cast(DoubleType()))
         .withColumn("geo_score_raw", score_raw.cast(DoubleType()))
-        .withColumn("dominant_country", dominant_country)
+        .withColumn("actor_countries", actor_countries)
         .drop("geo_C1", "geo_C2", "geo_C3")
     )
 
@@ -452,8 +496,14 @@ def format_daily(target_date: str) -> None:
         spark.stop()
         return
 
-    df_merged = df_existing.unionByName(df_new, allowMissingColumns=True)
-    df_merged = _clean_dataframe(df_merged)
+    # Nettoyer UNIQUEMENT les nouvelles données (les existantes sont déjà clean).
+    # Re-cleaner df_existing casserait DATEADDED/Day (le cast("string") suivi de
+    # to_timestamp(yyyyMMddHHmmss) ne matche pas un timestamp déjà parsé).
+    df_new_clean = _clean_dataframe(df_new, sort=False)
+
+    # Union + dédoublonnage (un même GlobalEventID peut arriver dans daily ET history)
+    df_merged = df_existing.unionByName(df_new_clean, allowMissingColumns=False)
+    df_merged = df_merged.dropDuplicates(["GlobalEventID"]).orderBy("DATEADDED")
 
     dt_min, dt_max = df_merged.agg(F.min("DATEADDED"), F.max("DATEADDED")).collect()[0]
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)

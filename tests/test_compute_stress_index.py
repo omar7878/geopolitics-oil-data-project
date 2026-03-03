@@ -7,7 +7,7 @@ Teste les fonctions pures PySpark du pipeline Gold (Stress Index) en utilisant
 une SparkSession locale (sans S3). Vérifie la logique métier de chaque étape.
 
 Couverture :
-  - _aggregate_gdelt_15min     : somme scores, main_actor, event_count
+  - _aggregate_gdelt_15min     : somme scores, actor_countries, event_count
   - _full_join_wti_gdelt       : join + market_open flag + fill nulls
   - _forward_map_to_open       : mapping fermeture → prochaine ouverture
   - _smooth_closed_periods     : lissage hybride 0.8×max + 0.2×mean
@@ -72,11 +72,11 @@ class TestAggregateGdelt15min:
     def test_sums_scores_per_timestamp(self, spark: SparkSession) -> None:
         data = [
             Row(DATEADDED=_ts("2026-02-27 09:00:00"), geo_I=1.0, geo_B=2.0,
-                geo_S=1.5, geo_score_raw=10.0, dominant_country="USA"),
+                geo_S=1.5, geo_score_raw=10.0, actor_countries=["USA"]),
             Row(DATEADDED=_ts("2026-02-27 09:00:00"), geo_I=2.0, geo_B=1.0,
-                geo_S=2.0, geo_score_raw=8.0, dominant_country="RUS"),
+                geo_S=2.0, geo_score_raw=8.0, actor_countries=["RUS"]),
             Row(DATEADDED=_ts("2026-02-27 09:15:00"), geo_I=3.0, geo_B=3.0,
-                geo_S=3.0, geo_score_raw=20.0, dominant_country="CHN"),
+                geo_S=3.0, geo_score_raw=20.0, actor_countries=["CHN"]),
         ]
         df = spark.createDataFrame(data)
         result = _aggregate_gdelt_15min(df)
@@ -88,18 +88,18 @@ class TestAggregateGdelt15min:
         assert row_09["geo_B"] == 3.0   # 2 + 1
         assert row_09["event_count"] == 2
 
-    def test_main_actor_is_best_score(self, spark: SparkSession) -> None:
+    def test_actor_countries_from_best_score(self, spark: SparkSession) -> None:
         data = [
             Row(DATEADDED=_ts("2026-02-27 09:00:00"), geo_I=1.0, geo_B=2.0,
-                geo_S=1.5, geo_score_raw=10.0, dominant_country="USA"),
+                geo_S=1.5, geo_score_raw=10.0, actor_countries=["USA"]),
             Row(DATEADDED=_ts("2026-02-27 09:00:00"), geo_I=2.0, geo_B=1.0,
-                geo_S=2.0, geo_score_raw=50.0, dominant_country="RUS"),
+                geo_S=2.0, geo_score_raw=50.0, actor_countries=["RUS", "IRN"]),
         ]
         df = spark.createDataFrame(data)
         result = _aggregate_gdelt_15min(df)
         row = result.first()
-        # RUS a le geo_score_raw le plus élevé (50 > 10) → main_actor = RUS
-        assert row["main_actor"] == "RUS"
+        # RUS/IRN a le geo_score_raw le plus élevé (50 > 10) → actor_countries = ["RUS", "IRN"]
+        assert sorted(row["actor_countries"]) == ["IRN", "RUS"]
 
 
 # ──────────────────────────────────────────────
@@ -116,9 +116,9 @@ class TestFullJoinWtiGdelt:
         ]
         gdelt_data = [
             Row(DATEADDED=_ts("2026-02-27 09:00:00"), geo_I=1.0, geo_B=2.0,
-                geo_S=1.5, geo_score_raw=10.0, event_count=5, main_actor="USA"),
+                geo_S=1.5, geo_score_raw=10.0, event_count=5, actor_countries=["USA"]),
             Row(DATEADDED=_ts("2026-02-27 03:00:00"), geo_I=0.5, geo_B=1.0,
-                geo_S=0.8, geo_score_raw=4.0, event_count=2, main_actor="RUS"),
+                geo_S=0.8, geo_score_raw=4.0, event_count=2, actor_countries=["RUS"]),
         ]
         df_wti = spark.createDataFrame(wti_data)
         df_gdelt = spark.createDataFrame(gdelt_data)
@@ -140,6 +140,7 @@ class TestFullJoinWtiGdelt:
         ]
         gdelt_data = []  # pas de GDELT pour ce timestamp
         df_wti = spark.createDataFrame(wti_data)
+        from pyspark.sql.types import ArrayType
         schema_gdelt = StructType([
             StructField("DATEADDED", TimestampType()),
             StructField("geo_I", DoubleType()),
@@ -147,7 +148,7 @@ class TestFullJoinWtiGdelt:
             StructField("geo_S", DoubleType()),
             StructField("geo_score_raw", DoubleType()),
             StructField("event_count", DoubleType()),
-            StructField("main_actor", StringType()),
+            StructField("actor_countries", ArrayType(StringType())),
         ])
         df_gdelt = spark.createDataFrame(gdelt_data, schema=schema_gdelt)
         result = _full_join_wti_gdelt(df_wti, df_gdelt)
@@ -195,34 +196,34 @@ class TestForwardMapToOpen:
 
 class TestSmoothClosedPeriods:
     def test_hybride_formula(self, spark: SparkSession) -> None:
-        """Vérifie le lissage 0.8×max + 0.2×mean."""
+        """Vérifie le lissage 0.25×max + 0.75×mean."""
         data = [
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=1.0, geo_B=2.0, geo_S=1.0, geo_score_raw=10.0,
-                event_count=3, main_actor="USA"),
+                event_count=3, actor_countries=["USA"]),
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=2.0, geo_B=4.0, geo_S=2.0, geo_score_raw=20.0,
-                event_count=5, main_actor="USA"),
+                event_count=5, actor_countries=["USA"]),
         ]
         df = spark.createDataFrame(data)
         result = _smooth_closed_periods(df)
         row = result.first()
 
         # geo_score_raw : max=20, sum=30, gap=2, mean=15
-        # smoothed = 0.8×20 + 0.2×15 = 16+3 = 19
-        assert abs(row["geo_score_raw_smoothed"] - 19.0) < 0.01
+        # smoothed = 0.25×20 + 0.75×15 = 5+11.25 = 16.25
+        assert abs(row["geo_score_raw_smoothed"] - 16.25) < 0.01
 
     def test_gap_duration_15m(self, spark: SparkSession) -> None:
         data = [
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=1.0, geo_B=1.0, geo_S=1.0, geo_score_raw=5.0,
-                event_count=1, main_actor="USA"),
+                event_count=1, actor_countries=["USA"]),
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=1.0, geo_B=1.0, geo_S=1.0, geo_score_raw=5.0,
-                event_count=1, main_actor="USA"),
+                event_count=1, actor_countries=["USA"]),
             Row(target_open_datetime=_ts("2026-02-27 09:00:00"),
                 geo_I=1.0, geo_B=1.0, geo_S=1.0, geo_score_raw=5.0,
-                event_count=1, main_actor="USA"),
+                event_count=1, actor_countries=["USA"]),
         ]
         df = spark.createDataFrame(data)
         result = _smooth_closed_periods(df)
@@ -252,14 +253,14 @@ class TestFinalJoinAndPercentile:
                 geo_I_sum=4.0, geo_B_sum=6.0, geo_S_sum=3.0, geo_score_raw_sum=30.0,
                 geo_I_max=3.0, geo_B_max=4.0, geo_S_max=2.0, geo_score_raw_max=20.0,
                 total_event_count=10.0, gap_duration_15m=5,
-                period_main_actor="USA"),
+                period_actor_countries=["USA"]),
             Row(target_open_datetime=_ts("2026-02-27 09:15:00"),
                 geo_I_smoothed=1.5, geo_B_smoothed=2.5,
                 geo_S_smoothed=1.2, geo_score_raw_smoothed=10.0,
                 geo_I_sum=3.0, geo_B_sum=5.0, geo_S_sum=2.4, geo_score_raw_sum=20.0,
                 geo_I_max=2.0, geo_B_max=3.5, geo_S_max=1.8, geo_score_raw_max=15.0,
                 total_event_count=8.0, gap_duration_15m=1,
-                period_main_actor="RUS"),
+                period_actor_countries=["RUS"]),
         ]
         df_wti = spark.createDataFrame(wti_data)
         df_smoothed = spark.createDataFrame(smoothed_data)
@@ -282,17 +283,190 @@ class TestFinalJoinAndPercentile:
                 geo_I_sum=4.0, geo_B_sum=6.0, geo_S_sum=3.0, geo_score_raw_sum=30.0,
                 geo_I_max=3.0, geo_B_max=4.0, geo_S_max=2.0, geo_score_raw_max=20.0,
                 total_event_count=10.0, gap_duration_15m=5,
-                period_main_actor="USA"),
+                period_actor_countries=["USA"]),
             Row(target_open_datetime=_ts("2026-02-27 03:00:00"),  # hors-marché → exclu
                 geo_I_smoothed=1.0, geo_B_smoothed=1.0,
                 geo_S_smoothed=1.0, geo_score_raw_smoothed=5.0,
                 geo_I_sum=2.0, geo_B_sum=2.0, geo_S_sum=2.0, geo_score_raw_sum=10.0,
                 geo_I_max=1.5, geo_B_max=1.5, geo_S_max=1.5, geo_score_raw_max=8.0,
                 total_event_count=4.0, gap_duration_15m=1,
-                period_main_actor="RUS"),
+                period_actor_countries=["RUS"]),
         ]
         df_wti = spark.createDataFrame(wti_data)
         df_smoothed = spark.createDataFrame(smoothed_data)
         result = _final_join_and_percentile(df_wti, df_smoothed)
         # 03:00 n'a pas de bougie WTI → exclue par inner join
         assert result.count() == 1
+
+
+# ──────────────────────────────────────────────
+# _load_wti / _load_gdelt — mocked I/O
+# ──────────────────────────────────────────────
+
+from unittest.mock import patch, MagicMock
+
+
+class TestLoadWti:
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_loads_full_in_history_mode(self, mock_spark) -> None:
+        from src.combination.compute_stress_index import _load_wti
+        mock_session = MagicMock()
+        mock_df = MagicMock()
+        mock_df.count.return_value = 500
+        mock_session.read.parquet.return_value = mock_df
+        result = _load_wti(mock_session, "history", None)
+        assert result.count() == 500
+        mock_df.filter.assert_not_called()
+
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_filters_in_daily_mode(self, mock_spark) -> None:
+        from src.combination.compute_stress_index import _load_wti
+        mock_session = MagicMock()
+        mock_df = MagicMock()
+        mock_filtered = MagicMock()
+        mock_filtered.count.return_value = 50
+        mock_df.filter.return_value = mock_filtered
+        mock_session.read.parquet.return_value = mock_df
+
+        result = _load_wti(mock_session, "daily", "2026-02-27")
+        mock_df.filter.assert_called_once()
+        assert result.count() == 50
+
+
+class TestLoadGdelt:
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_loads_full_in_history_mode(self, mock_spark) -> None:
+        from src.combination.compute_stress_index import _load_gdelt
+        mock_session = MagicMock()
+        mock_df = MagicMock()
+        mock_df.count.return_value = 1000
+        mock_session.read.parquet.return_value = mock_df
+        result = _load_gdelt(mock_session, "history", None)
+        assert result.count() == 1000
+        mock_df.filter.assert_not_called()
+
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_filters_in_daily_mode(self, mock_spark) -> None:
+        from src.combination.compute_stress_index import _load_gdelt
+        mock_session = MagicMock()
+        mock_df = MagicMock()
+        mock_filtered = MagicMock()
+        mock_filtered.count.return_value = 80
+        mock_df.filter.return_value = mock_filtered
+        mock_session.read.parquet.return_value = mock_df
+
+        result = _load_gdelt(mock_session, "daily", "2026-02-27")
+        mock_df.filter.assert_called_once()
+        assert result.count() == 80
+
+
+# ──────────────────────────────────────────────
+# _write_parquet (mocked)
+# ──────────────────────────────────────────────
+
+
+class TestWriteParquet:
+    def test_writes_parquet_to_path(self, spark: SparkSession, tmp_path) -> None:
+        from src.combination.compute_stress_index import _write_parquet
+        df = spark.createDataFrame([Row(x=1), Row(x=2)])
+        out = str(tmp_path / "test_stress_out.parquet")
+        _write_parquet(df, out)
+        result = spark.read.parquet(out)
+        assert result.count() == 2
+
+
+# ──────────────────────────────────────────────
+# compute_history / compute_daily — mocked I/O
+# ──────────────────────────────────────────────
+
+
+class TestComputeHistory:
+    @patch("src.combination.compute_stress_index._write_parquet")
+    @patch("src.combination.compute_stress_index._final_join_and_percentile")
+    @patch("src.combination.compute_stress_index._smooth_closed_periods")
+    @patch("src.combination.compute_stress_index._forward_map_to_open")
+    @patch("src.combination.compute_stress_index._full_join_wti_gdelt")
+    @patch("src.combination.compute_stress_index._aggregate_gdelt_15min")
+    @patch("src.combination.compute_stress_index._load_gdelt")
+    @patch("src.combination.compute_stress_index._load_wti")
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_calls_full_pipeline(self, mock_spark, mock_wti, mock_gdelt,
+                                  mock_agg, mock_join, mock_fwd, mock_smooth,
+                                  mock_final, mock_write) -> None:
+        from src.combination.compute_stress_index import compute_history
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_gold = MagicMock()
+        mock_final.return_value = mock_gold
+        mock_gold.agg.return_value.collect.return_value = [("2026-01-04", "2026-02-27")]
+
+        compute_history()
+        mock_wti.assert_called_once()
+        mock_gdelt.assert_called_once()
+        mock_agg.assert_called_once()
+        mock_join.assert_called_once()
+        mock_fwd.assert_called_once()
+        mock_smooth.assert_called_once()
+        mock_final.assert_called_once()
+        mock_write.assert_called_once()
+        mock_session.stop.assert_called_once()
+
+
+class TestComputeDaily:
+    @patch("src.combination.compute_stress_index._write_parquet")
+    @patch("src.combination.compute_stress_index._final_join_and_percentile")
+    @patch("src.combination.compute_stress_index._smooth_closed_periods")
+    @patch("src.combination.compute_stress_index._forward_map_to_open")
+    @patch("src.combination.compute_stress_index._full_join_wti_gdelt")
+    @patch("src.combination.compute_stress_index._aggregate_gdelt_15min")
+    @patch("src.combination.compute_stress_index._load_gdelt")
+    @patch("src.combination.compute_stress_index._load_wti")
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_returns_early_when_no_wti(self, mock_spark, mock_wti, mock_gdelt,
+                                       mock_agg, mock_join, mock_fwd, mock_smooth,
+                                       mock_final, mock_write) -> None:
+        from src.combination.compute_stress_index import compute_daily
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+        mock_df_wti = MagicMock()
+        mock_df_wti.count.return_value = 0
+        mock_wti.return_value = mock_df_wti
+
+        compute_daily("2026-02-27")
+        mock_session.stop.assert_called()
+        mock_agg.assert_not_called()
+
+    @patch("src.combination.compute_stress_index._write_parquet")
+    @patch("src.combination.compute_stress_index._final_join_and_percentile")
+    @patch("src.combination.compute_stress_index._smooth_closed_periods")
+    @patch("src.combination.compute_stress_index._forward_map_to_open")
+    @patch("src.combination.compute_stress_index._full_join_wti_gdelt")
+    @patch("src.combination.compute_stress_index._aggregate_gdelt_15min")
+    @patch("src.combination.compute_stress_index._load_gdelt")
+    @patch("src.combination.compute_stress_index._load_wti")
+    @patch("src.combination.compute_stress_index._get_spark")
+    def test_full_daily_pipeline(self, mock_spark, mock_wti, mock_gdelt,
+                                  mock_agg, mock_join, mock_fwd, mock_smooth,
+                                  mock_final, mock_write) -> None:
+        from src.combination.compute_stress_index import compute_daily
+        mock_session = MagicMock()
+        mock_spark.return_value = mock_session
+
+        mock_df_wti = MagicMock()
+        mock_df_wti.count.return_value = 100
+        mock_wti.return_value = mock_df_wti
+
+        mock_gold = MagicMock()
+        mock_final.return_value = mock_gold
+        mock_gold_day = MagicMock()
+        mock_gold.filter.return_value = mock_gold_day
+        mock_gold_day.count.return_value = 20
+
+        # No existing gold file
+        mock_session.read.parquet.side_effect = Exception("no existing")
+
+        mock_gold_day.orderBy.return_value = mock_gold_day
+
+        compute_daily("2026-02-27")
+        mock_write.assert_called_once()
+        mock_session.stop.assert_called_once()

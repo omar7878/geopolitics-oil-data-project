@@ -27,11 +27,9 @@ python-dotenv = "^1.0"          # Charge les variables du .env dans les scripts
 pandas = "^2.1"                 # Manipulation de données (utilitaire)
 s3fs = "^2023.10.0"             # Driver S3 pour PySpark/Pandas → LocalStack
 matplotlib = "^3.10.8"
-seaborn = "^0.13"               # Visualisation statistique
+seaborn = ">=0.13"
 awscli = "^1.36"                 # AWS CLI (binaire aws)
 awscli-local = "^0.22"           # Wrapper awslocal → LocalStack automatiquement
-xgboost = "^3.2.0"
-tensorflow = "^2.20.0"
 
 [tool.poetry.group.airflow.dependencies]
 # Utile en local uniquement pour l'autocomplétion IDE
@@ -42,6 +40,7 @@ pytest    = "^7.4"              # Tests unitaires
 black     = "^23.0"             # Formatage automatique du code
 ruff      = "^0.1"              # Linter rapide
 ipykernel = "^6.29"             # Kernel Jupyter pour le venv VS Code
+pytest-cov = "^7.0.0"
 
 [build-system]
 requires = ["poetry-core"]
