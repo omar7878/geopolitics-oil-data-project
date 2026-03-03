@@ -290,9 +290,9 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
       - total_event_count = somme du nombre d'événements
       - period_actor_countries = actor_countries du pire événement
     """
-    logger.info("Étape 4 : Lissage hybride (0.8×max + 0.2×mean) sur les périodes de fermeture")
+    logger.info("Étape 4 : Lissage hybride (0.25×max + 0.75×mean) sur les périodes de fermeture")
 
-    ALPHA = 0.8   # poids du pic (max)
+    ALPHA = 0.25  # poids du pic (max)
 
     # ── Agrégation par target_open_datetime ──
     agg_exprs = [
@@ -405,11 +405,12 @@ def _final_join_and_percentile(df_wti: DataFrame, df_smoothed: DataFrame) -> Dat
         F.col("geo_S_smoothed"),
         F.col("geo_score_raw_smoothed"),
 
-        # GDELT brut (sommes accumulées)
+        # GDELT brut (sommes accumulées + max pour calibration ALPHA)
         F.col("geo_I_sum"),
         F.col("geo_B_sum"),
         F.col("geo_S_sum"),
         F.col("geo_score_raw_sum"),
+        F.col("geo_score_raw_max"),
 
         # Métadonnées
         F.col("total_event_count"),

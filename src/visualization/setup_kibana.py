@@ -359,7 +359,38 @@ def _create_lens_bar_horizontal(vis_id: str, title: str, field: str, size: int =
 
 
 # ──────────────────────────────────────────────
-# 2b. MAP CHOROPLETH
+# 2b. MARKDOWN (titres / séparateurs)
+# ──────────────────────────────────────────────
+
+
+def _create_markdown_vis(vis_id: str, title: str, markdown: str, font_size: int = 16) -> None:
+    """Crée une visualisation Markdown (titre de section) via l'API CRUD."""
+    vis_state = json.dumps({
+        "title": title,
+        "type": "markdown",
+        "aggs": [],
+        "params": {
+            "markdown": markdown,
+            "fontSize": font_size,
+            "openLinksInNewTab": False,
+        },
+    })
+    attributes = {
+        "title": title,
+        "visState": vis_state,
+        "uiStateJSON": "{}",
+        "kibanaSavedObjectMeta": {
+            "searchSourceJSON": json.dumps({
+                "query": {"query": "", "language": "kuery"},
+                "filter": [],
+            })
+        },
+    }
+    _upsert("visualization", vis_id, attributes)
+
+
+# ──────────────────────────────────────────────
+# 2c. MAP CHOROPLETH
 # ──────────────────────────────────────────────
 
 
@@ -468,23 +499,27 @@ def _create_map_actors(map_id: str, title: str) -> None:
 # ──────────────────────────────────────────────
 
 # Kibana grid : 48 colonnes, hauteur en unités (~20 px)
+# Hauteur des bandeaux titres
+_TITLE_H = 3
+
 PANEL_DEFS = [
-    # Ligne 1 — Prix du pétrole (pleine largeur)
-    {"vis_id": "vis-wti-close",      "type": "lens", "grid": {"x": 0,  "y": 0,  "w": 48, "h": 15, "i": "p1"}},
-    # Ligne 2 — Volume de trading (pleine largeur)
-    {"vis_id": "vis-volume",          "type": "lens", "grid": {"x": 0,  "y": 15, "w": 48, "h": 12, "i": "p3"}},
-    # Ligne 3 — Variation WTI vs Score Global (pleine largeur)
-    {"vis_id": "vis-price-vs-stress", "type": "lens", "grid": {"x": 0,  "y": 27, "w": 48, "h": 15, "i": "p6"}},
-    # Ligne 4 — Scores géopolitiques I/B/S (pleine largeur)
-    {"vis_id": "vis-geo-scores",      "type": "lens", "grid": {"x": 0,  "y": 42, "w": 48, "h": 12, "i": "p4"}},
-    # Ligne 5 — Top acteurs + Carte
-    {"vis_id": "vis-top-actors",      "type": "lens", "grid": {"x": 0,  "y": 54, "w": 24, "h": 15, "i": "p5"}},
-    {"vis_id": "map-actors",          "type": "map",  "grid": {"x": 24, "y": 54, "w": 24, "h": 15, "i": "p7"}},
+    # ── Section 1 : Marché pétrolier ──
+    {"vis_id": "md-section-market",   "type": "visualization", "grid": {"x": 0,  "y": 0,  "w": 48, "h": _TITLE_H, "i": "t1"}},
+    {"vis_id": "vis-wti-close",       "type": "lens",          "grid": {"x": 0,  "y": 3,  "w": 48, "h": 15, "i": "p1"}},
+    {"vis_id": "vis-volume",           "type": "lens",          "grid": {"x": 0,  "y": 18, "w": 48, "h": 12, "i": "p3"}},
+    # ── Section 2 : Analyse géopolitique ──
+    {"vis_id": "md-section-geo",      "type": "visualization", "grid": {"x": 0,  "y": 30, "w": 48, "h": _TITLE_H, "i": "t2"}},
+    {"vis_id": "vis-price-vs-stress",  "type": "lens",          "grid": {"x": 0,  "y": 33, "w": 48, "h": 15, "i": "p6"}},
+    {"vis_id": "vis-geo-scores",       "type": "lens",          "grid": {"x": 0,  "y": 48, "w": 48, "h": 12, "i": "p4"}},
+    # ── Section 3 : Acteurs ──
+    {"vis_id": "md-section-actors",   "type": "visualization", "grid": {"x": 0,  "y": 60, "w": 48, "h": _TITLE_H, "i": "t3"}},
+    {"vis_id": "vis-top-actors",       "type": "lens",          "grid": {"x": 0,  "y": 63, "w": 24, "h": 15, "i": "p5"}},
+    {"vis_id": "map-actors",           "type": "map",           "grid": {"x": 24, "y": 63, "w": 24, "h": 15, "i": "p7"}},
 ]
 
 
 def _create_dashboard() -> None:
-    """Crée le dashboard avec les 6 panneaux (Lens + Maps)."""
+    """Crée le dashboard avec les 9 panneaux (titres Markdown + Lens + Maps)."""
     panels = []
     references = []
     for pdef in PANEL_DEFS:
@@ -548,7 +583,13 @@ def main() -> None:
     # 1. Data View
     _create_data_view()
 
-    # 2. Visualisations
+    # 2a. Titres de section (Markdown)
+    log.info("Création des titres de section …")
+    _create_markdown_vis("md-section-market",  "Section — Marché",       "📈  **Marché pétrolier — WTI**")
+    _create_markdown_vis("md-section-geo",     "Section — Géopolitique", "🌍  **Analyse géopolitique**")
+    _create_markdown_vis("md-section-actors",  "Section — Acteurs",      "🗺  **Acteurs géopolitiques**")
+
+    # 2b. Visualisations
     log.info("Création des visualisations Lens …")
     _create_lens_xy("vis-wti-close",    "WTI — Cours (Close)",             ["Close"],                                                "USD/bbl")
     _create_lens_xy("vis-volume",       "Volume de trading",               ["Volume"],              "Contrats",     "bar_stacked", interval="auto")

@@ -189,16 +189,42 @@ class TestCreateLensBarHorizontal:
 
 class TestCreateDashboard:
     @patch("src.visualization.setup_kibana._upsert")
-    def test_creates_dashboard_with_6_panels(self, mock_upsert) -> None:
+    def test_creates_dashboard_with_9_panels(self, mock_upsert) -> None:
         from src.visualization.setup_kibana import _create_dashboard
 
         _create_dashboard()
         mock_upsert.assert_called_once()
         args, kwargs = mock_upsert.call_args
         assert args[0] == "dashboard"
-        # Check references include all 6 vis/map panels
+        # Check references include all 9 panels (3 markdown + 4 lens + 1 bar + 1 map)
         refs = kwargs.get("references") or args[3]
-        assert len(refs) == 6
+        assert len(refs) == 9
+
+
+# ──────────────────────────────────────────────
+# main()
+# ──────────────────────────────────────────────
+
+
+# ──────────────────────────────────────────────
+# _create_markdown_vis
+# ──────────────────────────────────────────────
+
+
+class TestCreateMarkdownVis:
+    @patch("src.visualization.setup_kibana._upsert")
+    def test_creates_visualization_type(self, mock_upsert) -> None:
+        from src.visualization.setup_kibana import _create_markdown_vis
+
+        _create_markdown_vis("md-test", "Titre", "## Hello")
+        mock_upsert.assert_called_once()
+        args, kwargs = mock_upsert.call_args
+        assert args[0] == "visualization"
+        assert args[1] == "md-test"
+        attrs = kwargs.get("attributes") or args[2]
+        vis_state = json.loads(attrs["visState"])
+        assert vis_state["type"] == "markdown"
+        assert "Hello" in vis_state["params"]["markdown"]
 
 
 # ──────────────────────────────────────────────
@@ -212,9 +238,10 @@ class TestMain:
     @patch("src.visualization.setup_kibana._create_lens_bar_horizontal")
     @patch("src.visualization.setup_kibana._create_lens_dual_axis")
     @patch("src.visualization.setup_kibana._create_lens_xy")
+    @patch("src.visualization.setup_kibana._create_markdown_vis")
     @patch("src.visualization.setup_kibana._create_data_view")
     @patch("src.visualization.setup_kibana.requests")
-    def test_calls_all_steps(self, mock_req, mock_dv, mock_xy, mock_dual, mock_bar, mock_map, mock_dash) -> None:
+    def test_calls_all_steps(self, mock_req, mock_dv, mock_md, mock_xy, mock_dual, mock_bar, mock_map, mock_dash) -> None:
         from src.visualization.setup_kibana import main
 
         # Mock DELETE calls for stale objects
@@ -224,6 +251,8 @@ class TestMain:
 
         main()
         mock_dv.assert_called_once()
+        # 3 markdown section titles
+        assert mock_md.call_count == 3
         # 3 lens_xy calls (wti-close, volume, geo-scores)
         assert mock_xy.call_count == 3
         mock_dual.assert_called_once()
