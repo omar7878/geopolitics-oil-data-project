@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # FONCTION PRINCIPALE
 # ──────────────────────────────────────────────
 
-def extract_historical_data(start_date: datetime = datetime(2026, 1, 4, 0, 0, tzinfo=timezone.utc)) -> None:
+def extract_historical_data(start_date: datetime = datetime(2026, 2, 1, 0, 0, tzinfo=timezone.utc)) -> None:
     """
     Télécharge l'historique du pétrole WTI depuis Yahoo Finance,
     nettoie le DataFrame et le sauvegarde en Parquet.
@@ -118,7 +118,7 @@ def extract_historical_data(start_date: datetime = datetime(2026, 1, 4, 0, 0, tz
             Key=s3_key,
             Body=parquet_buffer.getvalue(),
         )
-        logger.info("✅ Uploadé → s3://%s/%s (%d lignes)", BUCKET_NAME, s3_key, len(group))
+        logger.info("Uploadé → s3://%s/%s (%d lignes)", BUCKET_NAME, s3_key, len(group))
 
     logger.info("Taille totale : %d lignes", len(df))
     logger.info("Ingestion terminée.")

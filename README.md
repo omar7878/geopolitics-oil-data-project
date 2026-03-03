@@ -187,10 +187,9 @@ poetry run jupyter notebook notebooks/
 |----------|---------|
 | `01_explore_raw_s3.ipynb` | Données brutes Parquet sur S3 |
 | `02_explore_formatted_spark.ipynb` | Parquet après nettoyage Spark (couche Silver) |
-| `03_explore_combined_stress_index.ipynb` | Stress Index et corrélations |
-| `03bis_xgboost_prediction.ipynb` | Prédiction prix WTI par XGBoost |
-| `03ter_lstm_prediction.ipynb` | Prédiction prix WTI par LSTM |
-| `04_explore_elasticsearch.ipynb` | Requêtes Elasticsearch |
+| `03_explore_combined_stress_index.ipynb` | Stress Index, corrélations et visualisations Gold layer |
+| `04_grid_search.ipynb` | Calibration de l'ALPHA optimal (grid search Spearman) |
+| `05_grid_search.ipynb` | Grid search étendu sur les pondérations du score géopolitique |
 
 ---
 
@@ -231,6 +230,7 @@ geopolitics-oil-data-project/
 ├── notebooks/                         # Exploration et prédiction (Jupyter)
 ├── infrastructure/
 │   ├── docker-compose.yml             # LocalStack, Postgres, Airflow, ES, Kibana
+│   ├── airflow.Dockerfile             # Image Docker custom pour Airflow
 │   └── localstack_init.sh             # Création auto du bucket S3
 ├── config/
 │   └── elastic_mapping.json           # Mapping Elasticsearch (20 champs)
@@ -246,7 +246,19 @@ geopolitics-oil-data-project/
 poetry run pytest tests/ -v
 ```
 
-61 tests couvrant les 6 modules du pipeline (ingestion, transformation, combination, indexation).
+Couverture des 8 modules du pipeline :
+
+| Fichier de test | Module testé |
+|---|---|
+| `test_backfill_gdelt.py` | Ingestion historique GDELT |
+| `test_backfill_yfinance.py` | Ingestion historique Yahoo Finance |
+| `test_batch_extract_gdelt.py` | Extraction quotidienne GDELT |
+| `test_batch_extract_yfinance.py` | Extraction quotidienne Yahoo Finance |
+| `test_clean_gdelt.py` | Transformation Silver GDELT |
+| `test_clean_yfinance.py` | Transformation Silver WTI |
+| `test_compute_stress_index.py` | Calcul Gold layer |
+| `test_load_to_elastic.py` | Indexation Elasticsearch |
+| `test_setup_kibana.py` | Dashboard Kibana |
 
 ---
 

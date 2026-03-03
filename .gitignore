@@ -56,4 +56,5 @@ data/
 *.csv
 *.parquet
 *.json
+*.pdf
 !config/elastic_mapping.json

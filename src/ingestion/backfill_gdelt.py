@@ -40,8 +40,8 @@ GDELT_COLUMNS = [
     "ActionGeo_FeatureID", "DATEADDED", "SOURCEURL"
 ]
 
-def run_backfill(start_date: datetime = datetime(2026, 1, 4, 0, 0, tzinfo=timezone.utc)):
-    print(f"📂 Récupération de l'historique GDELT depuis {start_date} (Master File List)...")
+def run_backfill(start_date: datetime = datetime(2026, 2, 1, 0, 0, tzinfo=timezone.utc)):
+    print(f"Récupération de l'historique GDELT depuis {start_date} (Master File List)...")
     
     try:
         # 1. Télécharger la liste de tous les fichiers existants
@@ -102,12 +102,12 @@ def run_backfill(start_date: datetime = datetime(2026, 1, 4, 0, 0, tzinfo=timezo
                         Key=s3_key,
                         Body=parquet_buffer.getvalue()
                     )
-                    print(f"✅ Ingested: {s3_key}")
+                    print(f"Ingested: {s3_key}")
 
-        print(f"✨ Backfill depuis {start_date.strftime('%Y-%m-%d %H:%M')} terminé !")
+        print(f"Backfill depuis {start_date.strftime('%Y-%m-%d %H:%M')} terminé !")
 
     except Exception as e:
-        print(f"❌ Erreur critique : {e}")
+        print(f"Erreur critique : {e}")
 
 if __name__ == "__main__":
     run_backfill()
