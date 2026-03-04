@@ -227,9 +227,11 @@ def format_daily(target_date: str) -> None:
         df_existing = spark.read.parquet(FORMATTED_PATH)
         logger.info("Fichier formaté existant : %d lignes", df_existing.count())
     except Exception:
-        logger.warning("Aucun fichier formaté existant (%s). Lancez d'abord format_history().", FORMATTED_PATH)
         spark.stop()
-        return
+        raise FileNotFoundError(
+            f"Aucun fichier formaté existant ({FORMATTED_PATH}). "
+            "Lancez d'abord le DAG oil_geopolitics_init (format_history)."
+        )
 
     # Lecture ciblée : uniquement le dossier du jour (pas de recursiveFileLookup)
     target_path = f"{RAW_DAILY_PATH}{target_date}/"
