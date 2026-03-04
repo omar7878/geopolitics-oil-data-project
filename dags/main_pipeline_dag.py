@@ -59,7 +59,7 @@ from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
 # ──────────────────────────────────────────────
-# LOGGING
+# JOURNALISATION
 # ──────────────────────────────────────────────
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ PYTHON_CMD = "cd /opt/airflow && python"
 HISTORY_START = datetime(2026, 1, 4)
 
 # ──────────────────────────────────────────────
-# CALLABLES PYTHON
+# FONCTIONS PYTHON (CALLABLES AIRFLOW)
 # ──────────────────────────────────────────────
 
 
@@ -198,7 +198,7 @@ def _ensure_silver_layer(**context: dict) -> None:  # type: ignore[type-arg]
     logger.info("→ Indexation Elasticsearch…")
     _run_index_to_elastic(**context)
 
-    logger.info("Reconstruction terminée ✅")
+    logger.info("Reconstruction terminée.")
 
 
 # ══════════════════════════════════════════════

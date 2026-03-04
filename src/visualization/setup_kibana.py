@@ -34,7 +34,7 @@ from typing import Any
 import requests
 
 # ──────────────────────────────────────────────
-# CONFIG
+# CONFIGURATION
 # ──────────────────────────────────────────────
 
 KIBANA_URL = os.getenv("KIBANA_URL", "http://localhost:5601")
@@ -53,7 +53,7 @@ HEADERS = {
 
 
 # ──────────────────────────────────────────────
-# HELPERS
+# FONCTIONS UTILITAIRES
 # ──────────────────────────────────────────────
 
 
@@ -69,15 +69,15 @@ def _upsert(obj_type: str, obj_id: str,
     url_put = f"{KIBANA_URL}/api/saved_objects/{obj_type}/{obj_id}"
     resp = requests.put(url_put, headers=HEADERS, json=body, timeout=15)
     if resp.status_code in (200, 201):
-        log.info("   ✅ %s/%s (updated)", obj_type, obj_id)
+        log.info("   %s/%s (updated)", obj_type, obj_id)
         return
 
     # Sinon POST (create)
     resp2 = requests.post(url_put, headers=HEADERS, json=body, timeout=15)
     if resp2.status_code in (200, 201):
-        log.info("   ✅ %s/%s (created)", obj_type, obj_id)
+        log.info("   %s/%s (created)", obj_type, obj_id)
     else:
-        log.error("   ❌ %s/%s — HTTP %s : %s",
+        log.error("   %s/%s — HTTP %s : %s",
                    obj_type, obj_id, resp2.status_code, resp2.text[:300])
         resp2.raise_for_status()
 
@@ -101,9 +101,9 @@ def _create_data_view() -> None:
     }
     resp = requests.post(url, headers=HEADERS, json=payload, timeout=15)
     if resp.status_code in (200, 201):
-        log.info("✅ Data View '%s' créé/mis à jour.", DATA_VIEW_ID)
+        log.info("Data View '%s' créé/mis à jour.", DATA_VIEW_ID)
     else:
-        log.error("❌ Data View — HTTP %s : %s", resp.status_code, resp.text[:300])
+        log.error("Data View — HTTP %s : %s", resp.status_code, resp.text[:300])
         resp.raise_for_status()
 
 
@@ -391,7 +391,7 @@ def _create_markdown_vis(vis_id: str, title: str, markdown: str, font_size: int 
 
 
 # ──────────────────────────────────────────────
-# 2c. MAP CHOROPLETH
+# 2c. CARTE CHOROPLETH
 # ──────────────────────────────────────────────
 
 
@@ -558,7 +558,7 @@ def _create_dashboard() -> None:
 
 
 # ──────────────────────────────────────────────
-# MAIN
+# POINT D'ENTRÉE
 # ──────────────────────────────────────────────
 
 
@@ -577,7 +577,7 @@ def main() -> None:
         try:
             resp = requests.delete(url, headers=HEADERS, timeout=10)
             if resp.status_code in (200, 204):
-                log.info("   🗑  ancien %s/%s supprimé", obj_type, obj_id)
+                log.info("   ancien %s/%s supprimé", obj_type, obj_id)
         except Exception:
             pass  # pas grave si l'objet n'existait pas
 

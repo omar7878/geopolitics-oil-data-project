@@ -36,8 +36,8 @@ services:
       retries: 5
 
   # ==========================================
-  # 2. LE TEMPS RÉEL (Kafka & Zookeeper)
-  # ⏸️  PHASE 2 — Commenté pour l'instant, sera activé pour le bonus streaming
+  # 2. TEMPS RÉEL (Kafka & Zookeeper)
+  # PHASE 2 — Commenté pour l'instant, sera activé pour le bonus streaming
   # ==========================================
   # zookeeper:
   #   image: confluentinc/cp-zookeeper:7.4.0
@@ -96,7 +96,7 @@ services:
       elasticsearch:
         condition: service_healthy
     ports:
-      - "5601:5601"            # L'adresse de ton tableau de bord (http://localhost:5601)
+      - "5601:5601"            # Adresse du tableau de bord (http://localhost:5601)
 
   # ==========================================
   # 4. L'ORCHESTRATION (Apache Airflow)

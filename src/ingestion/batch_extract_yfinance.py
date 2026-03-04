@@ -110,7 +110,7 @@ def extract_daily_data(execution_date: date) -> None:
         Key=s3_key,
         Body=parquet_buffer.getvalue(),
     )
-    logger.info("✅ Uploadé → s3://%s/%s", BUCKET_NAME, s3_key)
+    logger.info("Uploadé → s3://%s/%s", BUCKET_NAME, s3_key)
     logger.info("Taille : %.2f Ko", len(parquet_buffer.getvalue()) / 1024)
     logger.info("Ingestion daily terminée.")
 

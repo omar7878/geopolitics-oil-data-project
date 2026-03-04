@@ -265,7 +265,7 @@ def format_daily(target_date: str) -> None:
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df_merged, FORMATTED_PATH)
-    logger.info("Format daily terminé ✅")
+    logger.info("Format daily terminé.")
     spark.stop()
 
 

@@ -122,7 +122,7 @@ def _process_timestamp(ts: datetime, date_str: str) -> bool:
 
             s3_key = f"raw/gdelt/daily/{date_str}/{parquet_name}"
             s3.put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=parquet_buffer.getvalue())
-            logger.info("✅ Uploadé → s3://%s/%s (%d lignes)", BUCKET_NAME, s3_key, len(df))
+            logger.info("Uploadé → s3://%s/%s (%d lignes)", BUCKET_NAME, s3_key, len(df))
 
     return True
 

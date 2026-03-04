@@ -208,7 +208,7 @@ FIPS2_TO_ISO3 = {
 
 def _country_class_expr(colname: str) -> F.Column:
     """
-    Map pays -> classe (1..3) selon ta taxonomie.
+    Map pays -> classe (1..3) selon la taxonomie définie.
     Tout pays absent => 1.
     Utilise le dictionnaire FIPS 2 lettres pour ActionGeo_CountryCode,
     et ISO 3 lettres pour Actor1/Actor2CountryCode.
@@ -300,7 +300,7 @@ def _add_geo_scores(df: DataFrame) -> DataFrame:
 
 
 # ──────────────────────────────────────────────
-# CLEANING LOGIC (TA TRANSFO INITIALE ADAPTÉE)
+# NETTOYAGE (TRANSFORMATION INITIALE ADAPTÉE)
 # ──────────────────────────────────────────────
 
 def _clean_dataframe(df: DataFrame, sort: bool = True) -> DataFrame:
@@ -457,7 +457,7 @@ def format_history() -> None:
     n = spark2.read.parquet(FORMATTED_PATH).count()
     logger.info("  → %d lignes finales", n)
     spark2.stop()
-    logger.info("Format history terminé ✅")
+    logger.info("Format history terminé.")
 
 
 # ──────────────────────────────────────────────
@@ -511,7 +511,7 @@ def format_daily(target_date: str) -> None:
     logger.info("Plage temporelle : %s → %s", dt_min, dt_max)
 
     _write_parquet(df_merged, FORMATTED_PATH)
-    logger.info("Format daily terminé ✅")
+    logger.info("Format daily terminé.")
 
     spark.stop()
 

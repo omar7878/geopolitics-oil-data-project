@@ -489,7 +489,7 @@ def compute_history() -> None:
         dt_min = df_gold.agg(F.min("Datetime")).collect()[0][0]
         dt_max = df_gold.agg(F.max("Datetime")).collect()[0][0]
         logger.info("Plage temporelle Gold : %s → %s", dt_min, dt_max)
-        logger.info("Compute history terminé ✅")
+        logger.info("Compute history terminé.")
 
     except Exception as e:
         logger.error("Erreur lors du compute history : %s", e)
@@ -559,7 +559,7 @@ def compute_daily(target_date: str) -> None:
         df_final = df_final.orderBy("Datetime")
         _write_parquet(df_final, GOLD_OUTPUT_PATH)
 
-        logger.info("Compute daily terminé ✅")
+        logger.info("Compute daily terminé.")
 
     except Exception as e:
         logger.error("Erreur lors du compute daily : %s", e)
