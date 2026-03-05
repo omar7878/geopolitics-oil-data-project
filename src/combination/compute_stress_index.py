@@ -336,7 +336,7 @@ def _smooth_closed_periods(df: DataFrame) -> DataFrame:
 
 def _final_join_and_percentile(df_wti: DataFrame, df_smoothed: DataFrame) -> DataFrame:
     """
-    Inner join WTI × scores lissés sur Datetime = target_open_datetime.
+    Inner join WTI x scores lissés sur Datetime = target_open_datetime.
     → Ne garde QUE les bougies de marché ouvert (automatique via inner join).
     → Calcule le percentile glissant 7 jours de geo_score_raw_smoothed.
     """
