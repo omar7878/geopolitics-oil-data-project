@@ -40,7 +40,7 @@ GDELT_COLUMNS = [
     "ActionGeo_FeatureID", "DATEADDED", "SOURCEURL"
 ]
 
-def run_backfill(start_date: datetime = datetime(2026, 2, 1, 0, 0, tzinfo=timezone.utc)):
+def run_backfill(start_date: datetime = datetime(2026, 1, 4, 0, 0, tzinfo=timezone.utc)):
     print(f"Récupération de l'historique GDELT depuis {start_date} (Master File List)...")
     
     try:
@@ -63,7 +63,7 @@ def run_backfill(start_date: datetime = datetime(2026, 2, 1, 0, 0, tzinfo=timezo
             (df['datetime'] >= start_date)
         ].sort_values('datetime')
 
-        print(f"🚀 {len(to_process)} fichiers à rattraper depuis {start_date.strftime('%Y-%m-%d %H:%M')}.")
+        print(f"{len(to_process)} fichiers à rattraper depuis {start_date.strftime('%Y-%m-%d %H:%M')}.")
 
         # 4. Boucle d'ingestion
         for idx, row in to_process.iterrows():
@@ -102,9 +102,9 @@ def run_backfill(start_date: datetime = datetime(2026, 2, 1, 0, 0, tzinfo=timezo
                         Key=s3_key,
                         Body=parquet_buffer.getvalue()
                     )
-                    print(f"Ingested: {s3_key}")
+                    print(f"Ingéré : {s3_key}")
 
-        print(f"Backfill depuis {start_date.strftime('%Y-%m-%d %H:%M')} terminé !")
+        print(f"Backfill depuis {start_date.strftime('%Y-%m-%d %H:%M')} terminé.")
 
     except Exception as e:
         print(f"Erreur critique : {e}")

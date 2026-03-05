@@ -51,6 +51,7 @@ Interface web Airflow :
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -58,7 +59,7 @@ from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
 # ──────────────────────────────────────────────
-# LOGGING
+# JOURNALISATION
 # ──────────────────────────────────────────────
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ PYTHON_CMD = "cd /opt/airflow && python"
 HISTORY_START = datetime(2026, 1, 4)
 
 # ──────────────────────────────────────────────
-# CALLABLES PYTHON
+# FONCTIONS PYTHON (CALLABLES AIRFLOW)
 # ──────────────────────────────────────────────
 
 
@@ -114,6 +115,90 @@ def _run_index_to_elastic(**context: dict) -> None:  # type: ignore[type-arg]
 
     logger.info("Lancement de l'indexation Elasticsearch — date : %s", context["ds"])
     main()
+
+
+def _check_silver_layer_exists(**context: dict) -> bool:  # type: ignore[type-arg]
+    """Vérifie que les fichiers Silver (formatted/) existent dans S3.
+
+    Retourne True si les deux parquets sont présents, False sinon.
+    """
+    import boto3
+
+    endpoint = os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
+        region_name="eu-west-1",
+    )
+
+    required_prefixes = [
+        "formatted/yahoofinance/wti.parquet/",
+        "formatted/gdelt/events.parquet/",
+    ]
+    for prefix in required_prefixes:
+        resp = s3.list_objects_v2(Bucket="datalake", Prefix=prefix, MaxKeys=1)
+        if resp.get("KeyCount", 0) == 0:
+            logger.warning("Fichier Silver manquant : s3://datalake/%s", prefix)
+            return False
+
+    logger.info("Couche Silver OK — les fichiers formatted/ sont présents.")
+    return True
+
+
+def _ensure_silver_layer(**context: dict) -> None:  # type: ignore[type-arg]
+    """Vérifie la couche Silver ; reconstruit via history si absente.
+
+    Appelé au début du DAG daily pour gérer le cas où LocalStack
+    a perdu ses données (redémarrage conteneur, reboot PC, etc.).
+    Si les fichiers formatted/ existent déjà, ne fait rien.
+    """
+    import subprocess
+    import sys
+
+    if _check_silver_layer_exists(**context):
+        return
+
+    logger.warning("═" * 60)
+    logger.warning("RECONSTRUCTION AUTO — Couche Silver absente (S3 vidé ?)")
+    logger.warning("═" * 60)
+
+    # Étape 1 : Backfill Bronze (ingestion historique)
+    logger.info("→ Backfill GDELT…")
+    subprocess.check_call(
+        [sys.executable, "-m", "src.ingestion.backfill_gdelt"],
+        cwd="/opt/airflow",
+    )
+
+    logger.info("→ Backfill yfinance…")
+    _run_backfill_yfinance(**context)
+
+    # Étape 2 : Nettoyage Silver (history)
+    logger.info("→ Clean GDELT history…")
+    subprocess.check_call(
+        [sys.executable, "-m", "src.transformation.clean_gdelt", "--mode", "history"],
+        cwd="/opt/airflow",
+    )
+
+    logger.info("→ Clean yfinance history…")
+    subprocess.check_call(
+        [sys.executable, "-m", "src.transformation.clean_yfinance", "--mode", "history"],
+        cwd="/opt/airflow",
+    )
+
+    # Étape 3 : Gold (stress index complet)
+    logger.info("→ Compute stress index history…")
+    subprocess.check_call(
+        [sys.executable, "-m", "src.combination.compute_stress_index", "--mode", "history"],
+        cwd="/opt/airflow",
+    )
+
+    # Étape 4 : Indexation Elasticsearch
+    logger.info("→ Indexation Elasticsearch…")
+    _run_index_to_elastic(**context)
+
+    logger.info("Reconstruction terminée.")
 
 
 # ══════════════════════════════════════════════
@@ -193,6 +278,15 @@ with DAG(
     tags=["datalake", "oil", "geopolitics", "daily"],
 ) as dag_daily:
 
+    # ── Pré-vérification : les fichiers Silver existent-ils ? ────────
+    # Si non (ex: redémarrage LocalStack, reboot PC), reconstruction
+    # automatique complète (backfill → clean → stress → ES).
+    # Si oui, cette tâche ne fait rien et le daily continue.
+    ensure_silver = PythonOperator(
+        task_id="ensure_silver_layer",
+        python_callable=_ensure_silver_layer,
+    )
+
     # ── Bronze : Extraction GDELT du jour ────────────────────────────
     extract_gdelt = BashOperator(
         task_id="extract_gdelt",
@@ -245,6 +339,7 @@ with DAG(
     )
 
     # ── Dépendances ──────────────────────────────────────────────────
+    ensure_silver >> [extract_gdelt, extract_yfinance]
     extract_gdelt    >> clean_gdelt
     extract_yfinance >> clean_yfinance
     [clean_gdelt, clean_yfinance] >> compute_stress_index

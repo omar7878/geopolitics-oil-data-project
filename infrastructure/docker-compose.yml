@@ -28,9 +28,7 @@ services:
       - SERVICES=s3            # On n'allume que S3 pour économiser la RAM du PC
       - DEBUG=1
       - AWS_DEFAULT_REGION=eu-west-1
-      - PERSISTENCE=1          # Sauvegarde les objets S3 dans /var/lib/localstack/state/
     volumes:
-      - ./volume_s3:/var/lib/localstack  # Bind mount local pour meilleure persistance
       - ./localstack_init.sh:/etc/localstack/init/ready.d/init.sh  # Exécuté auto au démarrage
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
@@ -38,8 +36,8 @@ services:
       retries: 5
 
   # ==========================================
-  # 2. LE TEMPS RÉEL (Kafka & Zookeeper)
-  # ⏸️  PHASE 2 — Commenté pour l'instant, sera activé pour le bonus streaming
+  # 2. TEMPS RÉEL (Kafka & Zookeeper)
+  # PHASE 2 — Commenté pour l'instant, sera activé pour le bonus streaming
   # ==========================================
   # zookeeper:
   #   image: confluentinc/cp-zookeeper:7.4.0
@@ -98,15 +96,15 @@ services:
       elasticsearch:
         condition: service_healthy
     ports:
-      - "5601:5601"            # L'adresse de ton tableau de bord (http://localhost:5601)
+      - "5601:5601"            # Adresse du tableau de bord (http://localhost:5601)
 
   # ==========================================
   # 4. L'ORCHESTRATION (Apache Airflow)
   # ==========================================
   airflow:
     build:
-      context: .
-      dockerfile: airflow.Dockerfile
+      context: ..                       # Racine du projet (pour COPY dags/ et src/)
+      dockerfile: infrastructure/airflow.Dockerfile
     container_name: airflow_webserver
     depends_on:
       postgres:
@@ -115,8 +113,6 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
-      # kafka:                      # ⏸️ PHASE 2 — à réactiver avec Kafka
-      #   condition: service_healthy
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
@@ -129,9 +125,6 @@ services:
       # Elasticsearch & Kibana (noms Docker internes)
       - ES_HOST=http://elasticsearch:9200
       - KIBANA_URL=http://kibana:5601
-    volumes:
-      - ../dags:/opt/airflow/dags
-      - ../src:/opt/airflow/src
     ports:
       - "8080:8080"            # L'interface web d'Airflow (http://localhost:8080)
     entrypoint: ["/bin/bash", "-c"]

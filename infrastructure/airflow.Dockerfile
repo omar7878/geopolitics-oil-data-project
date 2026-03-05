@@ -17,4 +17,9 @@ RUN pip install --no-cache-dir --quiet \
     yfinance \
     "pyspark==3.5.8" \
     awscli \
-    awscli-local
+    awscli-local \
+    boto3
+
+# Copier le code source dans l'image (plus besoin de bind mount)
+COPY --chown=airflow:root dags /opt/airflow/dags
+COPY --chown=airflow:root src  /opt/airflow/src

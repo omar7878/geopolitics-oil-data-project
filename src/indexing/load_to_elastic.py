@@ -90,7 +90,7 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("AWS_DEFAULT_REGION",    "eu-west-1")
 
 # ──────────────────────────────────────────────
-# LOGGING
+# JOURNALISATION
 # ──────────────────────────────────────────────
 
 logging.basicConfig(
@@ -226,7 +226,7 @@ def _normalize_timestamp(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────
-# ELASTICSEARCH — CLIENT & INDEX
+# ELASTICSEARCH — CLIENT ET INDEX
 # ──────────────────────────────────────────────
 
 

@@ -3,66 +3,72 @@
 ```
 geopolitics-oil-data-project/
 │
-├── dags/                                   # ⏱️ ORCHESTRATION (Lu par Airflow)
-│   └── main_pipeline_dag.py                # Le chef d'orchestre qui lance les scripts au bon moment.
+├── dags/                                   # ORCHESTRATION (Airflow)
+│   └── main_pipeline_dag.py                # DAGs init + daily : ordonnancement du pipeline complet.
 │
-├── src/                                    # 🧠 CODE SOURCE (Scripts métier)
+├── src/                                    # CODE SOURCE (Scripts métier)
 │   ├── __init__.py
 │   │
 │   ├── ingestion/                          # Étape 1 : Récupération des données brutes
 │   │   ├── __init__.py
-│   │   ├── batch_extract_yahoofinance.py   # Batch : Prix du pétrole WTI (Yahoo Finance) → S3 raw/yahoofinance/
-│   │   ├── batch_extract_gdelt.py          # Batch : Événements géopolitiques (API GDELT) → S3 raw/gdelt/
-│   │   ├── kafka_producer_gdelt.py         # ⏸️ PHASE 2 — Streaming GDELT → Kafka
-│   │   └── kafka_consumer_s3.py            # ⏸️ PHASE 2 — Kafka → S3 raw/gdelt/
+│   │   ├── backfill_gdelt.py               # Historique GDELT (Master File List) → S3 raw/gdelt/history/
+│   │   ├── backfill_yfinance.py            # Historique WTI (Yahoo Finance, 60j max) → S3 raw/yahoofinance/history/
+│   │   ├── batch_extract_gdelt.py          # Daily GDELT (96 fichiers/jour) → S3 raw/gdelt/daily/
+│   │   └── batch_extract_yfinance.py       # Daily WTI (1 fichier/jour) → S3 raw/yahoofinance/daily/
 │   │
-│   ├── transformation/                     # Étape 2 : Nettoyage et Formatage (Spark)
+│   ├── transformation/                     # Étape 2 : Nettoyage et formatage (PySpark)
 │   │   ├── __init__.py
-│   │   ├── clean_gdelt.py                  # S3 raw/gdelt/ (JSON) → Parquet → S3 formatted/gdelt/
-│   │   └── clean_yahoofinance.py            # S3 raw/yahoofinance/ (JSON) → Parquet → S3 formatted/yahoofinance/
+│   │   ├── clean_gdelt.py                  # raw/gdelt/ → formatted/gdelt/events.parquet
+│   │   └── clean_yfinance.py               # raw/yahoofinance/ → formatted/yahoofinance/wti.parquet
 │   │
-│   ├── combination/                        # Étape 3 : Création de Valeur (Spark)
+│   ├── combination/                        # Étape 3 : Création de la couche Gold (PySpark)
 │   │   ├── __init__.py
-│   │   └── compute_stress_index.py         # Jointure GDELT + Yahoo Finance → Stress Score + Corrélation → S3 combined/
+│   │   └── compute_stress_index.py         # Jointure WTI × GDELT → combined/stress_index/
 │   │
-│   └── indexing/                           # Étape 4 : Chargement vers Elastic
+│   ├── indexing/                           # Étape 4 : Chargement vers Elasticsearch
+│   │   ├── __init__.py
+│   │   └── load_to_elastic.py              # combined/ (Parquet) → index oil-market-analysis
+│   │
+│   └── visualization/                      # Étape 5 : Dashboard Kibana
 │       ├── __init__.py
-│       └── load_to_elastic.py              # S3 combined/ (Parquet) → Elasticsearch
+│       └── setup_kibana.py                 # Data View + visualisations Lens + dashboard
 │
-├── notebooks/                              # 🔬 EXPLORATION & VISUALISATION (Développement)
-│   ├── 01_explore_raw_s3.ipynb             # Visualiser les JSON bruts sur LocalStack S3
-│   ├── 02_explore_formatted_spark.ipynb    # Explorer les Parquet après nettoyage Spark
-│   ├── 03_explore_combined_stress_index.ipynb  # Stress Score + corrélation glissante
-│   └── 04_explore_elasticsearch.ipynb      # Requêter et visualiser Elasticsearch
+├── notebooks/                              # EXPLORATION (Jupyter)
+│   ├── 01_explore_raw_s3.ipynb             # Données brutes Parquet sur LocalStack S3
+│   ├── 02_explore_formatted_spark.ipynb    # Parquet après nettoyage Spark (couche Silver)
+│   ├── 03_explore_combined_stress_index.ipynb  # Stress Index et corrélations
+│   ├── 04_grid_search.ipynb                # Recherche d'hyperparamètres
+│   └── 05_grid_search.ipynb                # Recherche d'hyperparamètres (suite)
 │
-├── tests/                                  # 🧪 TESTS UNITAIRES (Pytest)
+├── tests/                                  # TESTS UNITAIRES (pytest)
 │   ├── __init__.py
-│   ├── test_batch_extract_yfinance.py
+│   ├── test_backfill_gdelt.py
+│   ├── test_backfill_yfinance.py
 │   ├── test_batch_extract_gdelt.py
-│   ├── test_clean_yfinance.py
+│   ├── test_batch_extract_yfinance.py
 │   ├── test_clean_gdelt.py
+│   ├── test_clean_yfinance.py
 │   ├── test_compute_stress_index.py
-│   └── test_load_to_elastic.py
+│   ├── test_load_to_elastic.py
+│   └── test_setup_kibana.py
 │
-├── infrastructure/                         # 🐳 DOCKER & SERVICES
-│   ├── docker-compose.yml                  # Lance Airflow, LocalStack, Elastic et Kibana.
-│   └── localstack_init.sh                  # Crée automatiquement les buckets S3 au démarrage.
+├── infrastructure/                         # DOCKER ET SERVICES
+│   ├── docker-compose.yml                  # LocalStack, PostgreSQL, Airflow, Elasticsearch, Kibana
+│   ├── airflow.Dockerfile                  # Image Airflow avec code embarqué (COPY dags/ + src/)
+│   └── localstack_init.sh                  # Création automatique du bucket S3 au démarrage
 │
-├── config/                                 # ⚙️ CONFIGURATION
-│   └── elastic_mapping.json                # Schéma des données pour Kibana (types, dates...).
+├── config/                                 # CONFIGURATION
+│   └── elastic_mapping.json                # Mapping Elasticsearch (types, dates, champs)
 │
-├── .env                                    # 🔒 SECRETS (IGNORÉ PAR GIT)
-│                                           # Variables de connexion (LocalStack, Elasticsearch, Airflow).
+├── .env                                    # SECRETS (ignoré par Git)
 │
-├── .gitignore                              # 🚫 EXCLUSIONS GIT
-│                                           # .env, __pycache__, volume_s3, data/...
+├── .gitignore                              # EXCLUSIONS GIT
 │
-├── pyproject.toml                          # 📦 DÉPENDANCES (Poetry)
-│                                           # requests, boto3, pyspark, elasticsearch, pandas, s3fs
+├── pyproject.toml                          # DÉPENDANCES (Poetry)
 │
-├── ARCHITECTURE.md                         # 🗺️ CE FICHIER
+├── ARCHITECTURE.md                         # CE FICHIER
 │
-└── README.md                               # 📖 DOCUMENTATION
+└── README.md                               # DOCUMENTATION PRINCIPALE
 ```
 
 ---
@@ -73,21 +79,26 @@ geopolitics-oil-data-project/
 s3://datalake/
 ├── raw/                    ← Données brutes telles que reçues des APIs (Parquet)
 │   ├── yahoofinance/
-│   │   ├── history/        ← Backfill historique (une fois)
-│   │   │   └── wti_history_init.parquet
+│   │   ├── history/        ← Backfill historique (une seule fois)
+│   │   │   └── YYYY-MM-DD/wti_history.parquet
 │   │   └── daily/          ← Données quotidiennes (15 min)
 │   │       └── YYYY-MM-DD/
 │   │           └── wti_TIMESTAMP.parquet
 │   └── gdelt/
+│       ├── history/        ← Backfill historique
+│       │   └── YYYY-MM-DD/
+│       │       └── events.parquet
 │       └── daily/
 │           └── YYYY-MM-DD/
 │               └── events_TIMESTAMP.parquet
 │
-├── formatted/              ← Données nettoyées, dates UTC, types corrects (Parquet)
+├── formatted/              ← Couche Silver : données nettoyées (PySpark)
 │   ├── yahoofinance/
+│   │   └── wti.parquet/
 │   └── gdelt/
+│       └── events.parquet/
 │
-└── combined/               ← Résultat final : jointure + Stress Score (Parquet)
+└── combined/               ← Couche Gold : jointure WTI × GDELT + Stress Index
     └── stress_index/
 ```
 
@@ -95,11 +106,10 @@ s3://datalake/
 
 ## Services Docker
 
-| Service | Port | Rôle |
-|---|---|---|
-| LocalStack (S3) | 4566 | Faux Amazon S3 local |
-| Elasticsearch | 9200 | Moteur d'indexation |
-| Kibana | 5601 | Dashboard de visualisation |
-| Airflow | 8080 | Orchestration du pipeline |
-| PostgreSQL | interne | Base de données d'Airflow |
-| Kafka + Zookeeper | ⏸️ commentés | PHASE 2 — Streaming temps réel |
+| Service         | Port   | Rôle                                       |
+|-----------------|--------|---------------------------------------------|
+| LocalStack (S3) | 4566   | Stockage objet S3 local                     |
+| Elasticsearch   | 9200   | Moteur d'indexation                         |
+| Kibana          | 5601   | Dashboard de visualisation                  |
+| Airflow         | 8080   | Orchestration du pipeline (admin / admin)   |
+| PostgreSQL      | interne| Base de données d'Airflow                   |

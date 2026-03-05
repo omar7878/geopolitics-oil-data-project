@@ -326,7 +326,8 @@ class TestFormatDaily:
         mock_spark.return_value = mock_session
         mock_session.read.parquet.side_effect = Exception("not found")
 
-        format_daily("2026-02-27")
+        with pytest.raises(FileNotFoundError):
+            format_daily("2026-02-27")
         mock_session.stop.assert_called_once()
         mock_clean.assert_not_called()
 
