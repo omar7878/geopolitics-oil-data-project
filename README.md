@@ -35,7 +35,7 @@ Le pipeline est structuré en **trois couches** (Medallion Architecture) :
 |------------|----------------------------------------|---------------------------------------------------------------|
 | **Raw**    | `raw/gdelt/`, `raw/yahoofinance/`      | Données brutes Parquet, un fichier par tranche de 15 min      |
 | **Silver** | `formatted/gdelt/`, `formatted/yahoofinance/` | Nettoyé, filtré, dédoublonné, enrichi (scores géopolitiques) |
-| **Gold**   | `combined/stress_index/`               | Table ML-ready : WTI × GDELT jointé, stress lissé, percentile 7j |
+| **Gold**   | `combined/stress_index/`               | Table combiné : WTI × GDELT jointé, stress lissé, percentile 7j |
 
 ---
 
