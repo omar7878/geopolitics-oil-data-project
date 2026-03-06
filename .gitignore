@@ -45,6 +45,7 @@ spark-warehouse/
 
 # --- Jupyter ---
 .ipynb_checkpoints/
+notebooks/
 
 # --- Caches ---
 .pytest_cache/
